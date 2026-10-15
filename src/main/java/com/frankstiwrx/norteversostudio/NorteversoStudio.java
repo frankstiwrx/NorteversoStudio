@@ -1,6 +1,9 @@
 package com.frankstiwrx.norteversostudio;
 
 import com.frankstiwrx.norteversostudio.model.Clube;
+import com.frankstiwrx.norteversostudio.csv.Csv;
+import java.nio.file.Path;
+import java.io.IOException;
 
 public class NorteversoStudio {
 
@@ -25,5 +28,23 @@ public class NorteversoStudio {
 
         System.out.println();
         System.out.println(norte44);
+        
+        System.out.println();
+System.out.println("=== TESTE DE LEITURA CSV ===");
+
+try {
+
+    var registros = Csv.ler(Path.of("dados/teste.csv"));
+
+    for (var registro : registros) {
+        System.out.println(registro);
+    }
+
+} catch (IOException e) {
+
+    System.err.println(
+            "Erro ao ler CSV: " + e.getMessage()
+    );
+}
     }
 }
