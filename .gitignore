@@ -1,0 +1,22 @@
+# Maven
+/target/
+
+# NetBeans
+/nbproject/private/
+
+# Arquivos gerados
+/saida/*.csv
+
+# Dados extraidos do PES
+/dados/Jogadores.csv
+/dados/Aparencias.csv
+/dados/Atribuicoes.csv
+
+# Banco de dados
+*.db
+
+# Backups
+*.bak
+
+# Arquivos temporarios
+*.tmp
