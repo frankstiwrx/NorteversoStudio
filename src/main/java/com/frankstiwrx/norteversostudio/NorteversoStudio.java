@@ -1,5 +1,7 @@
 package com.frankstiwrx.norteversostudio;
 
+import com.frankstiwrx.norteversostudio.model.Clube;
+
 public class NorteversoStudio {
 
     public static void main(String[] args) {
@@ -7,9 +9,21 @@ public class NorteversoStudio {
         System.out.println("=================================");
         System.out.println("       NORTEVERSO STUDIO         ");
         System.out.println("=================================");
-        System.out.println("Versao: 0.1.0");
-        System.out.println("Sistema iniciado com sucesso!");
-        System.out.println("Bem-vindo ao Norteverso!");
 
+        Clube norte44 = new Clube(
+                1208,
+                "Norte44",
+                "Norte44",
+                "N44",
+                1,
+                "Potência Nacional",
+                "4-3-3",
+                30,
+                94,
+                95
+        );
+
+        System.out.println();
+        System.out.println(norte44);
     }
 }
