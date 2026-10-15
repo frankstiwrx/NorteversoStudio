@@ -40,6 +40,28 @@ try {
         System.out.println(registro);
     }
 
+    System.out.println();
+System.out.println("=== TESTE DE ESCRITA CSV ===");
+
+Path destino = Path.of("saida/teste_gerado.csv");
+
+Csv.gravar(destino, registros);
+
+var registrosGerados = Csv.ler(destino);
+
+if (registros.equals(registrosGerados)) {
+
+    System.out.println("VALIDAÇÃO: CSV preservado corretamente!");
+
+} else {
+
+    System.err.println("ERRO: O CSV gerado possui diferenças!");
+
+}
+
+System.out.println("Arquivo gerado com sucesso!");
+System.out.println("Destino: " + destino.toAbsolutePath());
+    
 } catch (IOException e) {
 
     System.err.println(

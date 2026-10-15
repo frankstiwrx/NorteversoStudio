@@ -6,6 +6,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.StandardOpenOption;
+
 
 public class Csv {
 
@@ -81,4 +83,62 @@ public class Csv {
 
         return registros;
     }
+    public static void gravar(
+        Path caminho,
+        List<List<String>> registros
+) throws IOException {
+
+    StringBuilder conteudo = new StringBuilder();
+
+    for (List<String> registro : registros) {
+
+        for (int i = 0; i < registro.size(); i++) {
+
+            if (i > 0) {
+                conteudo.append(';');
+            }
+
+            conteudo.append(escaparCampo(registro.get(i)));
+        }
+
+        conteudo.append("\r\n");
+    }
+
+    Path pasta = caminho.getParent();
+
+    if (pasta != null) {
+        Files.createDirectories(pasta);
+    }
+
+    Files.writeString(
+            caminho,
+            conteudo.toString(),
+            StandardCharsets.UTF_8,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE
+    );
+}
+    private static String escaparCampo(String valor) {
+
+    if (valor == null) {
+        return "";
+    }
+
+    boolean precisaAspas =
+            valor.contains(";")
+            || valor.contains("\"")
+            || valor.contains("\n")
+            || valor.contains("\r");
+
+    if (precisaAspas) {
+
+        String valorEscapado = valor.replace("\"", "\"\"");
+
+        return "\"" + valorEscapado + "\"";
+    }
+
+    return valor;
+}
+    
 }
