@@ -4,6 +4,7 @@ import com.frankstiwrx.norteversostudio.model.Clube;
 import com.frankstiwrx.norteversostudio.csv.Csv;
 import java.nio.file.Path;
 import java.io.IOException;
+import com.frankstiwrx.norteversostudio.validation.DatabaseValidator;
 
 public class NorteversoStudio {
 
@@ -44,6 +45,23 @@ try {
 System.out.println("=== TESTE DE ESCRITA CSV ===");
 
 Path destino = Path.of("saida/teste_gerado.csv");
+
+System.out.println();
+System.out.println("=== TESTE DO VALIDADOR ===");
+
+try {
+
+    DatabaseValidator.inspecionar(
+            Path.of("dados/testeinvalido.csv")
+    );
+
+} catch (IOException e) {
+
+    System.err.println(
+            "Erro na validacao: " + e.getMessage()
+    );
+}
+
 
 Csv.gravar(destino, registros);
 
