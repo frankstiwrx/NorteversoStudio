@@ -31,7 +31,7 @@
                 <version>3.5.0</version>
 
                 <configuration>
-                    <mainClass>br.com.norteverso.studio.Main</mainClass>
+                    <mainClass>com.frankstiwrx.norteversostudio.NorteversoStudio</mainClass>
                 </configuration>
             </plugin>
 
