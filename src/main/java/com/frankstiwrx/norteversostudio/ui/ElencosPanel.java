@@ -1,0 +1,333 @@
+package com.frankstiwrx.norteversostudio.ui;
+
+import com.frankstiwrx.norteversostudio.data.PesDatabase;
+import com.frankstiwrx.norteversostudio.data.PesDatabase.RosterEntry;
+import com.frankstiwrx.norteversostudio.data.PesDatabase.Team;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.io.File;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+import java.util.regex.Pattern;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JFileChooser;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
+import javax.swing.JTable;
+import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
+import javax.swing.RowFilter;
+import javax.swing.SwingWorker;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.TableRowSorter;
+
+/** Explora jogadores por clube e seus vínculos; nenhum arquivo é alterado. */
+public final class ElencosPanel extends JPanel {
+    private static final Color AZUL = new Color(18, 35, 57);
+    private static final Color VERDE = new Color(24, 117, 105);
+    private static final Color FUNDO = new Color(246, 248, 251);
+
+    private final Consumer<String> globalStatus;
+    private final JButton loadButton = new JButton("Carregar jogadores + times + atribuições...");
+    private final JLabel summary = new JLabel("Nenhuma base carregada.");
+    private final JLabel selectedTeam = new JLabel("Selecione um clube para visualizar o elenco.");
+    private final JLabel playerDetails = new JLabel(" ");
+    private final JTextField teamSearch = new JTextField();
+    private final JTextField playerSearch = new JTextField();
+    private final JCheckBox includeNational = new JCheckBox("Incluir seleções", false);
+    private final JComboBox<String> origin = new JComboBox<>(new String[] {
+            "Todos os países", "Base Dinamarca (203)", "Base Escócia (232)", "Base Rússia (230)"
+    });
+    private final DefaultListModel<Team> teamListModel = new DefaultListModel<>();
+    private final JList<Team> teamList = new JList<>(teamListModel);
+    private final RosterTableModel rosterTableModel = new RosterTableModel();
+    private final JTable rosterTable = new JTable(rosterTableModel);
+    private final TableRowSorter<RosterTableModel> rosterSorter = new TableRowSorter<>(rosterTableModel);
+    private PesDatabase database;
+    private File lastDirectory;
+
+    public ElencosPanel(Consumer<String> globalStatus) {
+        this.globalStatus = globalStatus;
+        setLayout(new BorderLayout(0, 14));
+        setBackground(FUNDO);
+        setBorder(BorderFactory.createEmptyBorder(20, 22, 20, 22));
+        add(createHeader(), BorderLayout.NORTH);
+        add(createExplorer(), BorderLayout.CENTER);
+        add(createDetails(), BorderLayout.SOUTH);
+        registerListeners();
+    }
+
+    private JPanel createHeader() {
+        JPanel top = new JPanel();
+        top.setBackground(FUNDO);
+        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        JLabel title = new JLabel("Clubes  /  Elencos do PES");
+        title.setForeground(AZUL);
+        title.setFont(new Font("SansSerif", Font.BOLD, 21));
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(title);
+        top.add(Box.createVerticalStrut(5));
+        JLabel help = new JLabel("Base antiga para testes • Somente leitura • IDs preservados");
+        help.setForeground(new Color(92, 102, 118));
+        help.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(help);
+        top.add(Box.createVerticalStrut(13));
+        loadButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        loadButton.addActionListener(e -> chooseFiles());
+        top.add(loadButton);
+        top.add(Box.createVerticalStrut(9));
+        summary.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(summary);
+        return top;
+    }
+
+    private JSplitPane createExplorer() {
+        JPanel left = new JPanel(new BorderLayout(0, 8));
+        left.setBackground(FUNDO);
+        JPanel filters = new JPanel();
+        filters.setBackground(FUNDO);
+        filters.setLayout(new BoxLayout(filters, BoxLayout.Y_AXIS));
+        filters.add(new JLabel("Buscar time:"));
+        filters.add(Box.createVerticalStrut(4));
+        teamSearch.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        filters.add(teamSearch);
+        filters.add(Box.createVerticalStrut(8));
+        origin.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        filters.add(origin);
+        includeNational.setBackground(FUNDO);
+        filters.add(includeNational);
+        left.add(filters, BorderLayout.NORTH);
+        teamList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        teamList.setFixedCellHeight(29);
+        teamList.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        teamList.setSelectionBackground(VERDE);
+        teamList.setSelectionForeground(Color.WHITE);
+        left.add(new JScrollPane(teamList), BorderLayout.CENTER);
+
+        JPanel right = new JPanel(new BorderLayout(0, 9));
+        right.setBackground(FUNDO);
+        selectedTeam.setForeground(AZUL);
+        selectedTeam.setFont(new Font("SansSerif", Font.BOLD, 15));
+        JPanel above = new JPanel(new BorderLayout(0, 6));
+        above.setBackground(FUNDO);
+        above.add(selectedTeam, BorderLayout.NORTH);
+        JPanel searchBar = new JPanel(new BorderLayout(6, 0));
+        searchBar.setBackground(FUNDO);
+        searchBar.add(new JLabel("Buscar no elenco:"), BorderLayout.WEST);
+        searchBar.add(playerSearch, BorderLayout.CENTER);
+        above.add(searchBar, BorderLayout.SOUTH);
+        right.add(above, BorderLayout.NORTH);
+        rosterTable.setRowHeight(27);
+        rosterTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        rosterTable.setFillsViewportHeight(true);
+        rosterTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        rosterTable.setRowSorter(rosterSorter);
+        rosterTable.getTableHeader().setReorderingAllowed(false);
+        int[] widths = {62, 80, 220, 70, 95, 85, 85, 70, 70, 100};
+        for (int i = 0; i < widths.length; i++) {
+            rosterTable.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        }
+        right.add(new JScrollPane(rosterTable), BorderLayout.CENTER);
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right);
+        split.setResizeWeight(.29);
+        split.setDividerLocation(265);
+        split.setBorder(null);
+        return split;
+    }
+
+    private JPanel createDetails() {
+        JPanel detail = new JPanel(new BorderLayout());
+        detail.setBackground(new Color(230, 238, 242));
+        detail.setBorder(BorderFactory.createEmptyBorder(10, 13, 10, 13));
+        playerDetails.setForeground(AZUL);
+        detail.add(playerDetails, BorderLayout.CENTER);
+        return detail;
+    }
+
+    private void registerListeners() {
+        addTextListener(teamSearch, this::filterTeams);
+        addTextListener(playerSearch, this::filterPlayers);
+        origin.addActionListener(e -> filterTeams());
+        includeNational.addActionListener(e -> filterTeams());
+        teamList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) showRoster(teamList.getSelectedValue());
+        });
+        rosterTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) showPlayer();
+        });
+    }
+
+    private static void addTextListener(JTextField field, Runnable callback) {
+        field.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { callback.run(); }
+            @Override public void removeUpdate(DocumentEvent e) { callback.run(); }
+            @Override public void changedUpdate(DocumentEvent e) { callback.run(); }
+        });
+    }
+
+    private void chooseFiles() {
+        Path players = chooseFile("1/3 — Selecione Jogadores - PES 2021 - Bin.csv");
+        if (players == null) return;
+        Path teams = chooseFile("2/3 — Selecione Times - PES 2021 - Bin.csv");
+        if (teams == null) return;
+        Path assignments = chooseFile("3/3 — Selecione Atribuição jogadores - PES 2021 - Bin.csv");
+        if (assignments == null) return;
+        loadButton.setEnabled(false);
+        globalStatus.accept("Importando CSVs: leitura e associação de IDs...");
+        new SwingWorker<PesDatabase, String>() {
+            @Override protected PesDatabase doInBackground() throws Exception {
+                return PesDatabase.load(players, teams, assignments, this::publish);
+            }
+            @Override protected void process(List<String> updates) {
+                if (!updates.isEmpty()) globalStatus.accept(updates.get(updates.size() - 1));
+            }
+            @Override protected void done() {
+                loadButton.setEnabled(true);
+                try {
+                    database = get();
+                    summary.setText(String.format("%d jogadores • %d times • %d atribuições",
+                            database.totalPlayers(), database.teams().size(), database.totalAssignments()));
+                    teamSearch.setText("");
+                    playerSearch.setText("");
+                    filterTeams();
+                    globalStatus.accept("Base importada em modo leitura. Nenhum arquivo original foi alterado.");
+                    if (database.unmatchedPlayers() > 0 || database.unmatchedTeams() > 0) {
+                        JOptionPane.showMessageDialog(ElencosPanel.this,
+                                "Atribuições com ID de jogador ausente: " + database.unmatchedPlayers()
+                                + "\nAtribuições com ID de time ausente: " + database.unmatchedTeams()
+                                + "\nEsses vínculos não foram exibidos; confira a consistência da base.",
+                                "Avisos de integridade", JOptionPane.WARNING_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    Throwable root = ex.getCause() != null ? ex.getCause() : ex;
+                    globalStatus.accept("Falha na importação; o banco anterior foi mantido.");
+                    JOptionPane.showMessageDialog(ElencosPanel.this,
+                            "Não foi possível carregar os CSVs:\n" + root.getMessage(),
+                            "Erro de importação", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    private Path chooseFile(String title) {
+        JFileChooser chooser = new JFileChooser(lastDirectory);
+        chooser.setDialogTitle(title);
+        chooser.setFileFilter(new FileNameExtensionFilter("Arquivos CSV (*.csv)", "csv"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return null;
+        lastDirectory = chooser.getSelectedFile().getParentFile();
+        return chooser.getSelectedFile().toPath();
+    }
+
+    private void filterTeams() {
+        if (database == null) return;
+        String query = teamSearch.getText().strip().toLowerCase(java.util.Locale.ROOT);
+        String previous = teamList.getSelectedValue() == null ? null : teamList.getSelectedValue().id();
+        String country = switch (origin.getSelectedIndex()) {
+            case 1 -> "203";
+            case 2 -> "232";
+            case 3 -> "230";
+            default -> "";
+        };
+        teamListModel.clear();
+        int keep = -1;
+        for (Team team : database.teams()) {
+            if (!includeNational.isSelected() && team.national()) continue;
+            if (!country.isEmpty() && !country.equals(team.country())) continue;
+            if (!query.isEmpty() && !team.name().toLowerCase(java.util.Locale.ROOT).contains(query)
+                    && !team.id().contains(query)) continue;
+            if (team.id().equals(previous)) keep = teamListModel.size();
+            teamListModel.addElement(team);
+        }
+        if (!teamListModel.isEmpty()) teamList.setSelectedIndex(keep < 0 ? 0 : keep);
+        else showRoster(null);
+    }
+
+    private void showRoster(Team team) {
+        if (database == null || team == null) {
+            selectedTeam.setText("Nenhum clube selecionado.");
+            rosterTableModel.load(List.of());
+            playerDetails.setText(" ");
+            return;
+        }
+        List<RosterEntry> roster = database.roster(team.id());
+        rosterTableModel.load(roster);
+        selectedTeam.setText(team.name() + "  •  ID " + team.id() + "  •  "
+                + roster.size() + " atribuições");
+        filterPlayers();
+        playerDetails.setText("Selecione um jogador para consultar seus dados.");
+    }
+
+    private void filterPlayers() {
+        String query = playerSearch.getText().strip();
+        rosterSorter.setRowFilter(query.isEmpty() ? null
+                : RowFilter.regexFilter("(?iu)" + Pattern.quote(query), 1, 2, 6));
+    }
+
+    private void showPlayer() {
+        int selected = rosterTable.getSelectedRow();
+        if (selected < 0) return;
+        RosterEntry entry = rosterTableModel.get(rosterTable.convertRowIndexToModel(selected));
+        var p = entry.player();
+        playerDetails.setText("<html><b>" + escape(p.name()) + "</b>  •  ID " + escape(p.id())
+                + "  •  Idade " + escape(p.age()) + "  •  " + escape(p.height()) + " cm / "
+                + escape(p.weight()) + " kg  •  Pé (dado bruto): " + escape(p.foot())
+                + "  •  Estilo (código): " + escape(p.playingStyle()) + "</html>");
+    }
+
+    private static String escape(String raw) {
+        return raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static final class RosterTableModel extends AbstractTableModel {
+        private static final String[] HEADERS = {
+                "Camisa", "ID", "Nome", "Idade", "POS (cód.)", "Overall",
+                "País (cód.)", "Altura", "Peso", "Estilo (cód.)"
+        };
+        private List<RosterEntry> rows = List.of();
+        void load(List<RosterEntry> entries) {
+            rows = new ArrayList<>(entries);
+            fireTableDataChanged();
+        }
+        RosterEntry get(int index) { return rows.get(index); }
+        @Override public int getRowCount() { return rows.size(); }
+        @Override public int getColumnCount() { return HEADERS.length; }
+        @Override public String getColumnName(int col) { return HEADERS[col]; }
+        @Override public boolean isCellEditable(int row, int col) { return false; }
+        @Override public Object getValueAt(int row, int col) {
+            var e = rows.get(row);
+            var p = e.player();
+            return switch (col) {
+                case 0 -> e.shirtNumber();
+                case 1 -> p.id();
+                case 2 -> p.name();
+                case 3 -> p.age();
+                case 4 -> p.position();
+                case 5 -> p.overall();
+                case 6 -> p.country();
+                case 7 -> p.height();
+                case 8 -> p.weight();
+                case 9 -> p.playingStyle();
+                default -> "";
+            };
+        }
+    }
+}

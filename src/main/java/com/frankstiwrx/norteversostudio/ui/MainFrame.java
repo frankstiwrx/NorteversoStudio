@@ -55,7 +55,7 @@ public final class MainFrame extends JFrame {
 
     private final CardLayout cards = new CardLayout();
     private final JPanel painelCentral = new JPanel(cards);
-    private final JLabel barraStatus = new JLabel("Pronto. Abra um CSV para começar.");
+    private final JLabel barraStatus = new JLabel("Pronto. Você pode carregar a base do PES na seção Clubes.");
     private final JLabel arquivoAtual = new JLabel("Nenhum arquivo carregado");
     private final JLabel infoTabela = new JLabel("0 registros • 0 colunas");
     private final JTextField busca = new JTextField(22);
@@ -68,7 +68,7 @@ public final class MainFrame extends JFrame {
     private int totalRegistros;
 
     public MainFrame() {
-        super("Norteverso Studio — Prévia 0.1");
+        super("Norteverso Studio — Etapa 02");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setMinimumSize(new Dimension(850, 550));
         setSize(1150, 720);
@@ -103,8 +103,8 @@ public final class MainFrame extends JFrame {
         ajuda.add(new JMenuItem(new AbstractAction("Sobre") {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) {
                 JOptionPane.showMessageDialog(MainFrame.this,
-                        "Norteverso Studio — Etapa 01\n" +
-                        "Prévia somente leitura de CSVs.\n" +
+                        "Norteverso Studio — Etapa 02\n" +
+                        "Prévia de CSVs e associação de jogadores aos clubes.\n" +
                         "Ainda não altera os arquivos do PES.",
                         "Sobre", JOptionPane.INFORMATION_MESSAGE);
             }
@@ -120,7 +120,7 @@ public final class MainFrame extends JFrame {
         JLabel titulo = new JLabel("NORTEVERSO  STUDIO");
         titulo.setFont(new Font("SansSerif", Font.BOLD, 22));
         titulo.setForeground(Color.WHITE);
-        JLabel versao = new JLabel("ETAPA 01  •  INTERFACE E CSV");
+        JLabel versao = new JLabel("ETAPA 02  •  CLUBES E ELENCOS");
         versao.setFont(new Font("SansSerif", Font.BOLD, 11));
         versao.setForeground(new Color(178, 209, 226));
         header.add(titulo, BorderLayout.WEST);
@@ -155,8 +155,7 @@ public final class MainFrame extends JFrame {
 
         painelCentral.setBackground(FUNDO);
         painelCentral.add(criarJogadores(), "Jogadores");
-        painelCentral.add(criarAviso("Clubes",
-                "Em desenvolvimento: associação dos IDs reais dos clubes e jogadores."), "Clubes");
+        painelCentral.add(new ElencosPanel(barraStatus::setText), "Clubes");
         painelCentral.add(criarAviso("Gerador",
                 "Em desenvolvimento: nomes, perfis, atributos e habilidades."), "Gerador");
         painelCentral.add(criarAviso("Banco de nomes",
