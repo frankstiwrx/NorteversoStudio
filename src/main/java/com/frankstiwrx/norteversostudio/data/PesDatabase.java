@@ -59,7 +59,7 @@ public final class PesDatabase {
     public static final List<String> PLAYER_BASICS = List.of(
             "Name", "JapName", "Shirt", "ShirtNational", "Country", "Country2",
             "Age", "Height", "Weight", "Foot", "POS", "PlayingStyle", "WeakFootUsage",
-            "WeakFootAcc", "Form", "InjuryResistance", "Reputation", "PlayingAttitude"
+            "WeakFootAcc", "Form", "InjuryResistance", "Reputation", "PlayingAttitude", "Legend"
     );
     public static final List<String> TEAM_FIELDS = List.of(
             "Name", "Country", "Stadium", "Coach", "NameEnglish", "NameUSEnglish",
@@ -250,6 +250,7 @@ public final class PesDatabase {
         number(edits, "InjuryResistance", 1, 3);
         number(edits, "Reputation", 1, 8);
         number(edits, "PlayingAttitude", 1, 3);
+        booleanField(edits, "Legend");
         if (edits.containsKey("Foot") && !isBoolean(edits.get("Foot"))) {
             throw new IllegalArgumentException("Foot deve ser True ou False.");
         }
@@ -307,6 +308,11 @@ public final class PesDatabase {
         progress.accept("Lendo jogadores...");
         CsvRows playersCsv = read(playersFile, "Id", "Name", "Country", "Age", "Height",
                 "Weight", "Foot", "POS", "OverallStats", "PlayingStyle");
+        if (playersCsv.columns.containsKey("SkinColour")) {
+            throw new IOException("Foi selecionada uma exportacao combinada Jogador + Aparencia "
+                    + "(281 colunas). Para esta etapa, abra Jogadores - PES 2021 - Bin.csv "
+                    + "(151 colunas) para preservar integralmente as aparencias.");
+        }
         Map<String, Player> players = new LinkedHashMap<>();
         Map<String, List<String>> playerRows = new LinkedHashMap<>();
         for (List<String> row : playersCsv.rows) {
