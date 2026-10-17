@@ -11,6 +11,9 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.io.File;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import javax.swing.SwingUtilities;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -40,7 +43,7 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableRowSorter;
 
-/** Explora jogadores por clube e seus vínculos; nenhum arquivo é alterado. */
+/** Explora e edita jogadores/times em memoria, sem tocar nos CSVs originais. */
 public final class ElencosPanel extends JPanel {
     private static final Color AZUL = new Color(18, 35, 57);
     private static final Color VERDE = new Color(24, 117, 105);
@@ -51,6 +54,10 @@ public final class ElencosPanel extends JPanel {
     private final JLabel summary = new JLabel("Nenhuma base carregada.");
     private final JLabel selectedTeam = new JLabel("Selecione um clube para visualizar o elenco.");
     private final JLabel playerDetails = new JLabel(" ");
+    private final JLabel unsaved = new JLabel("Sem alteracoes pendentes.");
+    private final JButton editPlayerButton = new JButton("Editar jogador...");
+    private final JButton editTeamButton = new JButton("Editar time...");
+    private final JButton exportButton = new JButton("Exportar CSVs editados...");
     private final JTextField teamSearch = new JTextField();
     private final JTextField playerSearch = new JTextField();
     private final JCheckBox includeNational = new JCheckBox("Incluir seleções", false);
@@ -74,29 +81,45 @@ public final class ElencosPanel extends JPanel {
         add(createExplorer(), BorderLayout.CENTER);
         add(createDetails(), BorderLayout.SOUTH);
         registerListeners();
+        editPlayerButton.setEnabled(false);
+        editTeamButton.setEnabled(false);
+        exportButton.setEnabled(false);
     }
 
     private JPanel createHeader() {
         JPanel top = new JPanel();
         top.setBackground(FUNDO);
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
-        JLabel title = new JLabel("Clubes  /  Elencos do PES");
+        JLabel title = new JLabel("Editor de jogadores e times  /  PES");
         title.setForeground(AZUL);
         title.setFont(new Font("SansSerif", Font.BOLD, 21));
         title.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(title);
         top.add(Box.createVerticalStrut(5));
-        JLabel help = new JLabel("Base antiga para testes • Somente leitura • IDs preservados");
+        JLabel help = new JLabel("Edicao local • IDs e aparencias protegidos • Exporte copias antes de importar no Ejogc327");
         help.setForeground(new Color(92, 102, 118));
         help.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(help);
         top.add(Box.createVerticalStrut(13));
-        loadButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
+        toolbar.setBackground(FUNDO);
         loadButton.addActionListener(e -> chooseFiles());
-        top.add(loadButton);
+        editPlayerButton.addActionListener(e -> editSelectedPlayer());
+        editTeamButton.addActionListener(e -> editSelectedTeam());
+        exportButton.addActionListener(e -> exportEdited());
+        toolbar.add(loadButton);
+        toolbar.add(editPlayerButton);
+        toolbar.add(editTeamButton);
+        toolbar.add(exportButton);
+        toolbar.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(toolbar);
         top.add(Box.createVerticalStrut(9));
         summary.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(summary);
+        unsaved.setForeground(VERDE);
+        unsaved.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(Box.createVerticalStrut(5));
+        top.add(unsaved);
         return top;
     }
 
@@ -174,6 +197,16 @@ public final class ElencosPanel extends JPanel {
         rosterTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) showPlayer();
         });
+        rosterTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2) editSelectedPlayer();
+            }
+        });
+        teamList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2) editSelectedTeam();
+            }
+        });
     }
 
     private static void addTextListener(JTextField field, Runnable callback) {
@@ -185,6 +218,10 @@ public final class ElencosPanel extends JPanel {
     }
 
     private void chooseFiles() {
+        if (hasPendingExport()
+                && JOptionPane.showConfirmDialog(this,
+                "Ha alteracoes nao exportadas. Carregar nova base vai descarta-las. Continuar?",
+                "Alteracoes pendentes", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
         Path players = chooseFile("1/3 — Selecione Jogadores - PES 2021 - Bin.csv");
         if (players == null) return;
         Path teams = chooseFile("2/3 — Selecione Times - PES 2021 - Bin.csv");
@@ -209,7 +246,9 @@ public final class ElencosPanel extends JPanel {
                     teamSearch.setText("");
                     playerSearch.setText("");
                     filterTeams();
-                    globalStatus.accept("Base importada em modo leitura. Nenhum arquivo original foi alterado.");
+                    editTeamButton.setEnabled(true);
+                    updateDirty();
+                    globalStatus.accept("Base importada; edicoes apenas em memoria ate exportar copias.");
                     if (database.unmatchedPlayers() > 0 || database.unmatchedTeams() > 0) {
                         JOptionPane.showMessageDialog(ElencosPanel.this,
                                 "Atribuições com ID de jogador ausente: " + database.unmatchedPlayers()
@@ -266,10 +305,14 @@ public final class ElencosPanel extends JPanel {
             selectedTeam.setText("Nenhum clube selecionado.");
             rosterTableModel.load(List.of());
             playerDetails.setText(" ");
+            editPlayerButton.setEnabled(false);
+            editTeamButton.setEnabled(false);
             return;
         }
         List<RosterEntry> roster = database.roster(team.id());
         rosterTableModel.load(roster);
+        editTeamButton.setEnabled(true);
+        editPlayerButton.setEnabled(false);
         selectedTeam.setText(team.name() + "  •  ID " + team.id() + "  •  "
                 + roster.size() + " atribuições");
         filterPlayers();
@@ -284,13 +327,131 @@ public final class ElencosPanel extends JPanel {
 
     private void showPlayer() {
         int selected = rosterTable.getSelectedRow();
-        if (selected < 0) return;
+        if (selected < 0) {
+            editPlayerButton.setEnabled(false);
+            return;
+        }
+        editPlayerButton.setEnabled(true);
         RosterEntry entry = rosterTableModel.get(rosterTable.convertRowIndexToModel(selected));
         var p = entry.player();
         playerDetails.setText("<html><b>" + escape(p.name()) + "</b>  •  ID " + escape(p.id())
                 + "  •  Idade " + escape(p.age()) + "  •  " + escape(p.height()) + " cm / "
                 + escape(p.weight()) + " kg  •  Pé (dado bruto): " + escape(p.foot())
                 + "  •  Estilo (código): " + escape(p.playingStyle()) + "</html>");
+    }
+
+    public boolean hasPendingExport() {
+        return database != null && database.hasUnexportedChanges();
+    }
+
+    private void updateDirty() {
+        if (database == null) return;
+        int players = database.dirtyPlayers();
+        int teams = database.dirtyTeams();
+        unsaved.setText(players + " jogadores e " + teams + " times alterados na memoria"
+                + (database.hasUnexportedChanges() ? "  •  Exportacao pendente" : "  •  Sem exportacao pendente"));
+        exportButton.setEnabled(players + teams > 0);
+    }
+
+    private String selectedPlayerId() {
+        int view = rosterTable.getSelectedRow();
+        if (view < 0) return null;
+        return rosterTableModel.get(rosterTable.convertRowIndexToModel(view)).player().id();
+    }
+
+    private void editSelectedPlayer() {
+        if (database == null) return;
+        String id = selectedPlayerId();
+        if (id == null) {
+            JOptionPane.showMessageDialog(this, "Selecione um jogador na lista do elenco.");
+            return;
+        }
+        new PlayerEditorDialog(SwingUtilities.getWindowAncestor(this), database, id,
+                () -> refreshPlayer(id)).setVisible(true);
+    }
+
+    private void editSelectedTeam() {
+        if (database == null || teamList.getSelectedValue() == null) {
+            JOptionPane.showMessageDialog(this, "Selecione um time.");
+            return;
+        }
+        String id = teamList.getSelectedValue().id();
+        new TeamEditorDialog(SwingUtilities.getWindowAncestor(this), database, id,
+                () -> refreshTeam(id)).setVisible(true);
+    }
+
+    private void refreshPlayer(String id) {
+        Team team = teamList.getSelectedValue();
+        if (team == null) return;
+        showRoster(team);
+        for (int i=0; i<rosterTableModel.getRowCount(); i++) {
+            if (rosterTableModel.get(i).player().id().equals(id)) {
+                int view = rosterTable.convertRowIndexToView(i);
+                if (view >= 0) rosterTable.setRowSelectionInterval(view, view);
+                break;
+            }
+        }
+        updateDirty();
+    }
+
+    private void refreshTeam(String teamId) {
+        filterTeams();
+        for (int i=0; i<teamListModel.getSize(); i++) {
+            if (teamListModel.get(i).id().equals(teamId)) {
+                teamList.setSelectedIndex(i);
+                showRoster(teamList.getSelectedValue());
+                break;
+            }
+        }
+        updateDirty();
+    }
+
+    private void exportEdited() {
+        if (database == null || database.dirtyPlayers() + database.dirtyTeams() == 0) return;
+        JFileChooser picker = new JFileChooser(lastDirectory);
+        picker.setDialogTitle("Escolha uma pasta para os novos CSVs (nao altera os arquivos originais)");
+        picker.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        if (picker.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        Path folder = picker.getSelectedFile().toPath();
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        Path players = folder.resolve("Jogadores_Norteverso_" + timestamp + ".csv");
+        Path teams = folder.resolve("Times_Norteverso_" + timestamp + ".csv");
+        if (JOptionPane.showConfirmDialog(this,
+                "Exportar dois arquivos na pasta selecionada?\n\n" + players.getFileName()
+                + "\n" + teams.getFileName()
+                + "\n\nNao modifica os CSVs originais, atribuicoes nem aparencias.",
+                "Confirmar exportacao", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        exportButton.setEnabled(false);
+        editPlayerButton.setEnabled(false);
+        editTeamButton.setEnabled(false);
+        loadButton.setEnabled(false);
+        globalStatus.accept("Gravando CSVs completos em copias separadas...");
+        new SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() throws Exception {
+                database.export(players, teams);
+                return null;
+            }
+            @Override protected void done() {
+                loadButton.setEnabled(true);
+                editTeamButton.setEnabled(teamList.getSelectedValue() != null);
+                editPlayerButton.setEnabled(selectedPlayerId() != null);
+                try {
+                    get();
+                    updateDirty();
+                    globalStatus.accept("Exportacao concluida em " + folder);
+                    JOptionPane.showMessageDialog(ElencosPanel.this,
+                            "Copias exportadas com sucesso:\n" + players + "\n" + teams
+                            + "\n\nAs edicoes continuam em memoria. Reimporte os CSVs gerados no Ejogc327 apenas apos conferir.",
+                            "Exportacao concluida", JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception ex) {
+                    Throwable root = ex.getCause() == null ? ex : ex.getCause();
+                    updateDirty();
+                    globalStatus.accept("Falha na exportacao: " + root.getMessage());
+                    JOptionPane.showMessageDialog(ElencosPanel.this,
+                            root.getMessage(), "Erro de exportacao", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     private static String escape(String raw) {

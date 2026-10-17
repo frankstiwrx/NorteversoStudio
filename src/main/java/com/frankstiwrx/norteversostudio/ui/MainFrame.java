@@ -50,7 +50,7 @@ public final class MainFrame extends JFrame {
     private static final Color VERDE = new Color(24, 117, 105);
     private static final Color FUNDO = new Color(246, 248, 251);
     private static final String[] MODULOS = {
-            "Jogadores", "Clubes", "Gerador", "Banco de nomes", "Ferramentas"
+            "Jogadores", "Clubes", "CSV", "Gerador", "Banco de nomes", "Ferramentas"
     };
 
     private final CardLayout cards = new CardLayout();
@@ -64,14 +64,18 @@ public final class MainFrame extends JFrame {
     private final CsvTableModel modelo = new CsvTableModel();
     private final JTable tabela = new JTable(modelo);
     private final TableRowSorter<CsvTableModel> ordenacao = new TableRowSorter<>(modelo);
+    private final ElencosPanel editorElencos = new ElencosPanel(barraStatus::setText);
     private Path caminhoCsv;
     private int totalRegistros;
 
     public MainFrame() {
-        super("Norteverso Studio — Etapa 02");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        super("Norteverso Studio — Etapa 03");
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosing(java.awt.event.WindowEvent e) { tentarSair(); }
+        });
         setMinimumSize(new Dimension(850, 550));
-        setSize(1150, 720);
+        setSize(1370, 820);
         setLocationRelativeTo(null);
         getContentPane().setBackground(FUNDO);
         setLayout(new BorderLayout());
@@ -85,6 +89,14 @@ public final class MainFrame extends JFrame {
         busca.setEnabled(false);
     }
 
+    private void tentarSair() {
+        if (editorElencos.hasPendingExport() && JOptionPane.showConfirmDialog(this,
+                "Ha alteracoes de jogadores/times ainda nao exportadas. Sair e descartar essas edicoes?",
+                "Alteracoes pendentes", JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) return;
+        dispose();
+    }
+
     private JMenuBar criarMenu() {
         JMenuBar menu = new JMenuBar();
         JMenu arquivo = new JMenu("Arquivo");
@@ -96,16 +108,16 @@ public final class MainFrame extends JFrame {
         }));
         arquivo.addSeparator();
         arquivo.add(new JMenuItem(new AbstractAction("Sair") {
-            @Override public void actionPerformed(java.awt.event.ActionEvent e) { dispose(); }
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { tentarSair(); }
         }));
         menu.add(arquivo);
         JMenu ajuda = new JMenu("Ajuda");
         ajuda.add(new JMenuItem(new AbstractAction("Sobre") {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) {
                 JOptionPane.showMessageDialog(MainFrame.this,
-                        "Norteverso Studio — Etapa 02\n" +
-                        "Prévia de CSVs e associação de jogadores aos clubes.\n" +
-                        "Ainda não altera os arquivos do PES.",
+                        "Norteverso Studio — Etapa 03\n" +
+                        "Editor de jogadores e times com exportacao segura de CSV.\n" +
+                        "Nenhum arquivo original e sobrescrito.",
                         "Sobre", JOptionPane.INFORMATION_MESSAGE);
             }
         }));
@@ -120,7 +132,7 @@ public final class MainFrame extends JFrame {
         JLabel titulo = new JLabel("NORTEVERSO  STUDIO");
         titulo.setFont(new Font("SansSerif", Font.BOLD, 22));
         titulo.setForeground(Color.WHITE);
-        JLabel versao = new JLabel("ETAPA 02  •  CLUBES E ELENCOS");
+        JLabel versao = new JLabel("ETAPA 03  •  EDICAO DE JOGADORES E TIMES");
         versao.setFont(new Font("SansSerif", Font.BOLD, 11));
         versao.setForeground(new Color(178, 209, 226));
         header.add(titulo, BorderLayout.WEST);
@@ -154,8 +166,8 @@ public final class MainFrame extends JFrame {
         corpo.add(esquerda, BorderLayout.WEST);
 
         painelCentral.setBackground(FUNDO);
-        painelCentral.add(criarJogadores(), "Jogadores");
-        painelCentral.add(new ElencosPanel(barraStatus::setText), "Clubes");
+        painelCentral.add(criarJogadores(), "CSV");
+        painelCentral.add(editorElencos, "Clubes");
         painelCentral.add(criarAviso("Gerador",
                 "Em desenvolvimento: nomes, perfis, atributos e habilidades."), "Gerador");
         painelCentral.add(criarAviso("Banco de nomes",
@@ -165,7 +177,8 @@ public final class MainFrame extends JFrame {
         navegacao.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 String modulo = navegacao.getSelectedValue();
-                if (modulo != null) cards.show(painelCentral, modulo);
+                if (modulo != null) cards.show(painelCentral,
+                        modulo.equals("Jogadores") ? "Clubes" : modulo);
             }
         });
         navegacao.setSelectedIndex(0);
