@@ -77,27 +77,36 @@ public final class PesDatabase {
         PLAYER_EDITABLE = Collections.unmodifiableSet(allowed);
     }
 
-    private final CsvRows playersCsv, teamsCsv;
-    private final Map<String, List<String>> playerRows, teamRows;
+    private final CsvRows playersCsv, teamsCsv, assignmentsCsv;
+    private final Map<String, List<String>> playerRows, teamRows, assignmentRows;
     private final Map<String, Player> players;
     private final List<Team> teams;
     private final Map<String, List<RosterEntry>> rosters;
     private final Map<String, List<String>> initialPlayerRows = new HashMap<>();
     private final Map<String, List<String>> initialTeamRows = new HashMap<>();
+    private final Map<String, List<String>> initialAssignmentRows = new HashMap<>();
+    public static final List<String> ASSIGNMENT_FLAGS = List.of(
+            "Captain", "Short Free Kick", "Long Free Kick", "Right Corner", "Left Corner", "Penalty");
+    private static final Set<String> ASSIGNMENT_EDITABLE = Set.of(
+            "ShirtNumber", "Captain", "Short Free Kick", "Long Free Kick",
+            "Right Corner", "Left Corner", "Penalty");
     private final int totalAssignments, unmatchedPlayers, unmatchedTeams;
-    private final Path playersSource, teamsSource;
+    private final Path playersSource, teamsSource, assignmentsSource;
     private long revision = 0;
     private long exportedRevision = 0;
 
-    private PesDatabase(CsvRows playersCsv, CsvRows teamsCsv,
+    private PesDatabase(CsvRows playersCsv, CsvRows teamsCsv, CsvRows assignmentsCsv,
                         Map<String, List<String>> playerRows, Map<String, List<String>> teamRows,
+                        Map<String, List<String>> assignmentRows,
                         Map<String, Player> players, List<Team> teams,
                         Map<String, List<RosterEntry>> rosters, int totalAssignments,
-                        int unmatchedPlayers, int unmatchedTeams, Path playersSource, Path teamsSource) {
+                        int unmatchedPlayers, int unmatchedTeams, Path playersSource, Path teamsSource, Path assignmentsSource) {
         this.playersCsv = playersCsv;
         this.teamsCsv = teamsCsv;
+        this.assignmentsCsv = assignmentsCsv;
         this.playerRows = playerRows;
         this.teamRows = teamRows;
+        this.assignmentRows = assignmentRows;
         this.players = players;
         this.teams = teams;
         this.rosters = rosters;
@@ -106,6 +115,7 @@ public final class PesDatabase {
         this.unmatchedTeams = unmatchedTeams;
         this.playersSource = playersSource.toAbsolutePath().normalize();
         this.teamsSource = teamsSource.toAbsolutePath().normalize();
+        this.assignmentsSource = assignmentsSource.toAbsolutePath().normalize();
     }
 
     public List<Team> teams() { return Collections.unmodifiableList(teams); }
@@ -118,12 +128,122 @@ public final class PesDatabase {
     public int unmatchedTeams() { return unmatchedTeams; }
     public int dirtyPlayers() { return initialPlayerRows.size(); }
     public int dirtyTeams() { return initialTeamRows.size(); }
+    public int dirtyAssignments() { return initialAssignmentRows.size(); }
     public boolean hasUnexportedChanges() {
-        return revision != exportedRevision && (dirtyPlayers() > 0 || dirtyTeams() > 0);
+        return revision != exportedRevision && (dirtyPlayers() > 0 || dirtyTeams() > 0 || dirtyAssignments() > 0);
     }
     public boolean isPlayerDirty(String id) { return initialPlayerRows.containsKey(id); }
     public boolean isTeamDirty(String id) { return initialTeamRows.containsKey(id); }
     public Player player(String id) { return players.get(id); }
+    public boolean isAssignmentDirty(String id) { return initialAssignmentRows.containsKey(id); }
+    public String assignmentField(String id, String field) {
+        List<String> row = assignmentRows.get(id);
+        if (row == null) throw new IllegalArgumentException("Atribuicao inexistente: " + id);
+        return assignmentsCsv.value(row, field);
+    }
+
+    /** Edição de camisa e funções táticas sem afetar outros registros/seleções. */
+    public void editAssignment(String id, Map<String, String> edits) {
+        List<String> row = assignmentRows.get(id);
+        if (row == null) throw new IllegalArgumentException("Atribuicao nao encontrada: " + id);
+        validateKeys(edits, ASSIGNMENT_EDITABLE, assignmentsCsv, "atribuicao");
+        String teamId = assignmentsCsv.value(row, "IdTeam");
+        Team team = team(teamId);
+        if (team == null || team.national()) {
+            throw new IllegalArgumentException("Edicao de convocacoes/selecoes nao suportada nesta etapa.");
+        }
+        if (edits.containsKey("ShirtNumber")) {
+            int shirt = requireShirt(edits.get("ShirtNumber"));
+            checkShirt(teamId, id, shirt);
+        }
+        for (String field : ASSIGNMENT_FLAGS) booleanField(edits, field);
+        if (!changed(row, edits, assignmentsCsv)) return;
+        // Mantém um único responsável para cada função, tal como o editor original.
+        for (String flag : ASSIGNMENT_FLAGS) {
+            if ("True".equalsIgnoreCase(edits.get(flag))) {
+                for (RosterEntry other : roster(teamId)) {
+                    if (!other.assignmentId().equals(id)
+                            && "True".equalsIgnoreCase(assignmentField(other.assignmentId(), flag))) {
+                        updateAssignmentRow(other.assignmentId(), Map.of(flag, "False"));
+                    }
+                }
+            }
+        }
+        updateAssignmentRow(id, edits);
+        updateRosterEntries();
+    }
+
+    /** Transfere um vínculo de clube já existente. Não cria IDs nem mexe em seleções. */
+    public void transferPlayer(String assignmentId, String targetId, String newShirt) {
+        List<String> row = assignmentRows.get(assignmentId);
+        if (row == null) throw new IllegalArgumentException("Atribuicao inexistente: " + assignmentId);
+        String sourceId = assignmentsCsv.value(row, "IdTeam");
+        Team source = team(sourceId), target = team(targetId);
+        if (source == null || source.national() || target == null || target.national()) {
+            throw new IllegalArgumentException("Transferencia permitida somente entre clubes existentes.");
+        }
+        if (sourceId.equals(targetId)) throw new IllegalArgumentException("Escolha outro clube de destino.");
+        String playerId = assignmentsCsv.value(row, "IdPlayer");
+        if (roster(targetId).stream().anyMatch(e -> e.player().id().equals(playerId))) {
+            throw new IllegalArgumentException("O jogador ja possui vinculo com o clube de destino.");
+        }
+        int shirt = requireShirt(newShirt);
+        checkShirt(targetId, assignmentId, shirt);
+        Map<String, String> change = new LinkedHashMap<>();
+        change.put("IdTeam", targetId);
+        change.put("ShirtNumber", Integer.toString(shirt));
+        // Não traz as responsabilidades de bolas paradas do antigo clube.
+        for (String flag : ASSIGNMENT_FLAGS) change.put(flag, "False");
+        updateAssignmentRow(assignmentId, change);
+        updateRosterEntries();
+    }
+
+    /** Restaura exatamente a linha do arquivo de entrada, inclusive transferência. */
+    public void restoreAssignment(String id) {
+        List<String> original = initialAssignmentRows.remove(id);
+        if (original == null) return;
+        List<String> row = assignmentRows.get(id);
+        for (int i = 0; i < row.size(); i++) row.set(i, original.get(i));
+        revision++;
+        updateRosterEntries();
+    }
+
+    private void checkShirt(String teamId, String assignmentId, int shirt) {
+        for (RosterEntry other : roster(teamId)) {
+            if (!other.assignmentId().equals(assignmentId)
+                    && Integer.toString(shirt).equals(other.shirtNumber())) {
+                throw new IllegalArgumentException("Camisa " + shirt + " ja utilizada por " + other.player().name()
+                        + " neste clube.");
+            }
+        }
+    }
+    private static int requireShirt(String raw) {
+        try {
+            int shirt = Integer.parseInt(raw.trim());
+            if (shirt >= 1 && shirt <= 99) return shirt;
+        } catch (NumberFormatException ignored) { }
+        throw new IllegalArgumentException("O numero de camisa deve estar entre 1 e 99.");
+    }
+    private void updateAssignmentRow(String id, Map<String, String> updates) {
+        List<String> row = assignmentRows.get(id);
+        if (!changed(row, updates, assignmentsCsv)) return;
+        initialAssignmentRows.putIfAbsent(id, List.copyOf(row));
+        apply(row, updates, assignmentsCsv);
+        if (row.equals(initialAssignmentRows.get(id))) initialAssignmentRows.remove(id);
+        revision++;
+    }
+    private void updateRosterEntries() {
+        rosters.clear();
+        for (List<String> row : assignmentsCsv.rows) {
+            String teamId = assignmentsCsv.value(row, "IdTeam");
+            Player player = players.get(assignmentsCsv.value(row, "IdPlayer"));
+            if (player != null && teamRows.containsKey(teamId)) {
+                rosters.computeIfAbsent(teamId, ignored -> new ArrayList<>())
+                        .add(new RosterEntry(player, assignmentsCsv.value(row, "ShirtNumber"),
+                                assignmentsCsv.value(row, "Id")));
+            }
+        }
+    }
     public Team team(String id) {
         return teams.stream().filter(t -> t.id().equals(id)).findFirst().orElse(null);
     }
@@ -183,6 +303,9 @@ public final class PesDatabase {
 
     /** Salva duas copias, nunca sobrescreve o original. */
     public void export(Path playersOutput, Path teamsOutput) throws IOException {
+        if (dirtyAssignments() > 0) {
+            throw new IOException("Ha alteracoes nos elencos. Use a exportacao de tres CSVs.");
+        }
         Path p = playersOutput.toAbsolutePath().normalize();
         Path t = teamsOutput.toAbsolutePath().normalize();
         if (p.equals(t) || p.equals(playersSource) || p.equals(teamsSource)
@@ -197,6 +320,31 @@ public final class PesDatabase {
             writeNewFile(t, teamsCsv.content());
         } catch (IOException ex) {
             try { Files.deleteIfExists(p); } catch (IOException ignored) { /* arquivo de seguranca */ }
+            throw ex;
+        }
+        exportedRevision = revision;
+    }
+
+    /** Exporta os três CSVs completos preservando ordem, cabeçalhos e demais colunas. */
+    public void exportAll(Path playersOutput, Path teamsOutput, Path assignmentOutput) throws IOException {
+        Path p = playersOutput.toAbsolutePath().normalize();
+        Path t = teamsOutput.toAbsolutePath().normalize();
+        Path a = assignmentOutput.toAbsolutePath().normalize();
+        Set<Path> all = new HashSet<>(List.of(p, t, a));
+        if (all.size() != 3 || all.contains(playersSource) || all.contains(teamsSource)
+                || all.contains(assignmentsSource)) {
+            throw new IOException("Os arquivos de destino devem ser distintos dos tres CSVs originais.");
+        }
+        if (Files.exists(p) || Files.exists(t) || Files.exists(a)) {
+            throw new IOException("Pelo menos um destino ja existe; use uma pasta livre ou novo horario.");
+        }
+        List<Path> done = new ArrayList<>();
+        try {
+            writeNewFile(p, playersCsv.content()); done.add(p);
+            writeNewFile(t, teamsCsv.content()); done.add(t);
+            writeNewFile(a, assignmentsCsv.content()); done.add(a);
+        } catch (IOException ex) {
+            for (Path f : done) try { Files.deleteIfExists(f); } catch (IOException ignored) { }
             throw ex;
         }
         exportedRevision = revision;
@@ -339,10 +487,16 @@ public final class PesDatabase {
             teamRows.put(id, row);
         }
         progress.accept("Associando jogadores aos clubes...");
-        CsvRows assignmentsCsv = read(assignmentsFile, "Id", "IdPlayer", "IdTeam", "ShirtNumber");
+        CsvRows assignmentsCsv = read(assignmentsFile, "Id", "IdPlayer", "IdTeam", "ShirtNumber",
+                "Captain", "Short Free Kick", "Long Free Kick", "Right Corner", "Left Corner", "Penalty");
         Map<String, List<RosterEntry>> rosters = new HashMap<>();
+        Map<String, List<String>> assignmentRows = new LinkedHashMap<>();
         int unmatchedPlayers = 0, unmatchedTeams = 0;
         for (List<String> row : assignmentsCsv.rows) {
+            String assignmentId = assignmentsCsv.value(row, "Id");
+            if (assignmentId.isBlank() || assignmentRows.putIfAbsent(assignmentId, row) != null) {
+                throw new IOException("Id de atribuicao vazio ou duplicado: " + assignmentId);
+            }
             String teamId = assignmentsCsv.value(row, "IdTeam");
             if (!teamIds.contains(teamId)) { unmatchedTeams++; continue; }
             Player player = players.get(assignmentsCsv.value(row, "IdPlayer"));
@@ -353,9 +507,9 @@ public final class PesDatabase {
         }
         teams.sort((a, b) -> a.name().compareToIgnoreCase(b.name()));
         progress.accept("Base carregada com sucesso.");
-        return new PesDatabase(playersCsv, teamsCsv, playerRows, teamRows, players, teams,
-                rosters, assignmentsCsv.rows.size(), unmatchedPlayers, unmatchedTeams,
-                playersFile, teamsFile);
+        return new PesDatabase(playersCsv, teamsCsv, assignmentsCsv, playerRows, teamRows,
+                assignmentRows, players, teams, rosters, assignmentsCsv.rows.size(), unmatchedPlayers,
+                unmatchedTeams, playersFile, teamsFile, assignmentsFile);
     }
 
     private static CsvRows read(Path file, String... required) throws IOException {

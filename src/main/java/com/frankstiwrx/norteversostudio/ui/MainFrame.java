@@ -69,7 +69,7 @@ public final class MainFrame extends JFrame {
     private int totalRegistros;
 
     public MainFrame() {
-        super("Norteverso Studio — Etapa 03");
+        super("Norteverso Studio — Player & Club Editor");
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override public void windowClosing(java.awt.event.WindowEvent e) { tentarSair(); }
@@ -91,7 +91,7 @@ public final class MainFrame extends JFrame {
 
     private void tentarSair() {
         if (editorElencos.hasPendingExport() && JOptionPane.showConfirmDialog(this,
-                "Ha alteracoes de jogadores/times ainda nao exportadas. Sair e descartar essas edicoes?",
+                "Há alterações de jogadores, times ou elencos não exportadas. Sair e descartar?",
                 "Alteracoes pendentes", JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) return;
         dispose();
@@ -115,7 +115,7 @@ public final class MainFrame extends JFrame {
         ajuda.add(new JMenuItem(new AbstractAction("Sobre") {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) {
                 JOptionPane.showMessageDialog(MainFrame.this,
-                        "Norteverso Studio — Etapa 03\n" +
+                        "Norteverso Studio — Player & Club Editor\n" +
                         "Editor de jogadores e times com exportacao segura de CSV.\n" +
                         "Nenhum arquivo original e sobrescrito.",
                         "Sobre", JOptionPane.INFORMATION_MESSAGE);
@@ -132,7 +132,7 @@ public final class MainFrame extends JFrame {
         JLabel titulo = new JLabel("NORTEVERSO  STUDIO");
         titulo.setFont(new Font("SansSerif", Font.BOLD, 22));
         titulo.setForeground(Color.WHITE);
-        JLabel versao = new JLabel("ETAPA 03  •  EDICAO DE JOGADORES E TIMES");
+        JLabel versao = new JLabel("JOGADORES  •  CLUBES  •  TRANSFERÊNCIAS  •  FORMAÇÕES");
         versao.setFont(new Font("SansSerif", Font.BOLD, 11));
         versao.setForeground(new Color(178, 209, 226));
         header.add(titulo, BorderLayout.WEST);
