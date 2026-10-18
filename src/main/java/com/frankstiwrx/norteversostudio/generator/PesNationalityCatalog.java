@@ -35,6 +35,18 @@ public final class PesNationalityCatalog {
             Map.entry("236", "ES")    // Spain
     );
     private PesNationalityCatalog() { }
+    /** Codigo de pais PES (nao ISO). Sem mapeamento validado -> nao alterar pais. */
+    public static String pesCountryForOrigin(String iso) {
+        if (iso == null) return null;
+        // No jogo, Inglaterra/Escocia/Gales/Irlanda do Norte usam codigos separados.
+        if ("GB".equals(iso)) return "204"; // Inglaterra como padrão anglófono
+        return PES_TO_ISO.entrySet().stream()
+                .filter(e -> e.getValue().equals(iso))
+                .map(Map.Entry::getKey).findFirst().orElse(null);
+    }
+    public static Map<String, String> knownCountries() {
+        return Map.copyOf(PES_TO_ISO);
+    }
     public static String nameOriginForCountryCode(String country) {
         return PES_TO_ISO.get(country);
     }

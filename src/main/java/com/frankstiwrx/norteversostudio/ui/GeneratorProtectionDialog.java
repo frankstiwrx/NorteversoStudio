@@ -2,8 +2,12 @@ package com.frankstiwrx.norteversostudio.ui;
 
 import com.frankstiwrx.norteversostudio.data.PesDatabase;
 import com.frankstiwrx.norteversostudio.data.PesDatabase.RosterEntry;
-import com.frankstiwrx.norteversostudio.generator.IdentityGenerator;
+import com.frankstiwrx.norteversostudio.data.PlayingStyleCatalog;
 import com.frankstiwrx.norteversostudio.generator.NameCatalog;
+import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService;
+import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService.Draft;
+import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService.Mode;
+import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService.Options;
 import com.frankstiwrx.norteversostudio.generator.ProtectionRegistry;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -12,7 +16,6 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Window;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,36 +34,40 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
-import javax.swing.SwingConstants;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.table.AbstractTableModel;
 
 /**
- * Fase 1 do gerador: protege jogadores e produz uma PREVIA de identidades.
- * Aplicar muda SOMENTE Name e opcionalmente Shirt, nunca IDs, clubes ou aparencias.
+ * Gerador + protetor v0.8: quatro modos com prévia editável e validação em lote.
+ * Trabalha só com jogadores existentes, preservando IDs, rostos e clubes.
  */
 public final class GeneratorProtectionDialog extends JDialog {
     private static final Color DARK = new Color(21, 41, 63);
     private static final Color GREEN = new Color(30, 128, 93);
     private final PesDatabase db;
-    private final String teamId;
     private final ProtectionRegistry registry;
-    private final IdentityGenerator generator;
+    private final PlayerGenerationService generator;
     private final Runnable afterApply;
     private final List<RosterEntry> entries;
     private final Model model = new Model();
     private final JTable table = new JTable(model);
     private final JLabel status = new JLabel(" ");
     private final JLabel counts = new JLabel(" ");
+    private final JComboBox<Mode> mode = new JComboBox<>(Mode.values());
     private final JComboBox<Origin> origin = new JComboBox<>();
-    private final JTextField seed = new JTextField("20261017", 12);
-    private final JCheckBox onlySelected = new JCheckBox("Gerar somente selecionados", false);
-    private final JCheckBox updateShirt = new JCheckBox("Atualizar nome da camisa (Shirt)", true);
-    private final JCheckBox protectGenerated = new JCheckBox("Proteger jogadores após aplicar", false);
+    private final JTextField seed = new JTextField("20261017", 10);
+    private final JSpinner level = new JSpinner(new SpinnerNumberModel(78, 50, 99, 1));
+    private final JCheckBox onlySelected = new JCheckBox("Somente selecionados", false);
+    private final JCheckBox changeCountry = new JCheckBox("Nacionalidade conforme origem do nome", true);
+    private final JCheckBox updateShirt = new JCheckBox("Atualizar nome na camisa", true);
+    private final JCheckBox protectGenerated = new JCheckBox("Proteger depois de aplicar", false);
     private final JButton apply = new JButton("APLICAR PRÉVIA");
-    private List<IdentityGenerator.Proposal> preview = List.of();
+    private final JButton edit = new JButton("Editar jogador da prévia...");
+    private List<Draft> preview = List.of();
 
     private record Origin(String label, String code) {
         @Override public String toString() { return label; }
@@ -71,50 +78,53 @@ public final class GeneratorProtectionDialog extends JDialog {
                                      Runnable afterApply) {
         super(owner, "Norteverso Studio — Gerador e protetor", ModalityType.APPLICATION_MODAL);
         this.db = db;
-        this.teamId = teamId;
         this.registry = registry;
-        this.generator = new IdentityGenerator(catalog, registry);
+        this.generator = new PlayerGenerationService(catalog, registry);
         this.afterApply = afterApply;
         this.entries = new ArrayList<>(db.roster(teamId));
         build(catalog);
         refreshCounts();
-        setMinimumSize(new Dimension(890, 550));
-        setSize(1130, 690);
+        setMinimumSize(new Dimension(840, 520));
+        var screen = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        setSize(Math.min(1250, Math.max(840, screen.width - 50)),
+                Math.min(755, Math.max(520, screen.height - 50)));
         setLocationRelativeTo(owner);
     }
 
     private void build(NameCatalog catalog) {
-        JPanel outer = new JPanel(new BorderLayout(0, 12));
-        outer.setBorder(BorderFactory.createEmptyBorder(15, 17, 13, 17));
+        JPanel outer = new JPanel(new BorderLayout(0, 9));
+        outer.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
         outer.setBackground(new Color(246, 248, 250));
         setContentPane(outer);
         JPanel header = new JPanel();
         header.setOpaque(false);
         header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
-        JLabel title = new JLabel("Gerador de identidades  +  Proteção de jogadores");
+        JLabel title = new JLabel("Gerador de jogadores   /   Protetor de elencos");
         title.setForeground(DARK);
         title.setFont(new Font("SansSerif", Font.BOLD, 21));
         title.setAlignmentX(LEFT_ALIGNMENT);
         header.add(title);
-        header.add(Box.createVerticalStrut(5));
-        JLabel warning = new JLabel("Protegidos ficam intactos. Modo automático pula países sem nomes cadastrados.");
+        header.add(Box.createVerticalStrut(6));
+        JLabel warning = new JLabel("🔒 Jogadores protegidos ficam intactos. ID, face 3D, miniface, altura/peso e vínculos com clubes nunca são gerados.");
         warning.setAlignmentX(LEFT_ALIGNMENT);
         header.add(warning);
         header.add(Box.createVerticalStrut(5));
-        JLabel unchanged = new JLabel("Preservados: IDs, aparências, faces, nacionalidade, idade, atributos e clube.");
-        unchanged.setForeground(GREEN);
-        unchanged.setAlignmentX(LEFT_ALIGNMENT);
-        header.add(unchanged);
-        header.add(Box.createVerticalStrut(9));
+        JLabel hint = new JLabel("'Perfil completo' transforma um registro EXISTENTE — não cria novo ID. Nível é referência de atributos; NÃO é OVR garantido.");
+        hint.setForeground(GREEN);
+        hint.setAlignmentX(LEFT_ALIGNMENT);
+        header.add(hint);
+        header.add(Box.createVerticalStrut(7));
         counts.setAlignmentX(LEFT_ALIGNMENT);
         header.add(counts);
-        header.add(Box.createVerticalStrut(8));
+        header.add(Box.createVerticalStrut(7));
 
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 4));
-        controls.setOpaque(false);
-        controls.add(new JLabel("Origem do nome:"));
-        origin.addItem(new Origin("Automático (manter origem do país)", "AUTO"));
-        origin.addItem(new Origin("Misto Norteverso (65% FI)", "MIX"));
+        JPanel settings = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
+        settings.setOpaque(false);
+        settings.add(new JLabel("Modo:"));
+        settings.add(mode);
+        settings.add(new JLabel("Origem do nome:"));
+        origin.addItem(new Origin("Automático (país atual)", "AUTO"));
+        origin.addItem(new Origin("Misto Norteverso", "MIX"));
         origin.addItem(new Origin("Finlândia (FI)", "FI"));
         origin.addItem(new Origin("Países nórdicos", "NORDIC"));
         origin.addItem(new Origin("Países bálticos", "BALTIC"));
@@ -122,18 +132,42 @@ public final class GeneratorProtectionDialog extends JDialog {
         origin.addItem(new Origin("Europa Central / Oriental", "EAST"));
         origin.addItem(new Origin("Todos os países", "ALL"));
         for (String code : catalog.countries()) origin.addItem(new Origin("País: " + code, code));
-        controls.add(origin);
-        controls.add(new JLabel("Seed:"));
-        controls.add(seed);
-        controls.setAlignmentX(LEFT_ALIGNMENT);
-        header.add(controls);
-        JPanel choices = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        choices.setOpaque(false);
-        choices.add(onlySelected);
-        choices.add(updateShirt);
-        choices.add(protectGenerated);
-        choices.setAlignmentX(LEFT_ALIGNMENT);
-        header.add(choices);
+        origin.setSelectedIndex(1);
+        settings.add(origin);
+        settings.add(new JLabel("Nível de atributos:"));
+        settings.add(level);
+        settings.add(new JLabel("Seed:"));
+        settings.add(seed);
+        settings.setAlignmentX(LEFT_ALIGNMENT);
+        header.add(settings);
+        JPanel options = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        options.setOpaque(false);
+        options.add(onlySelected);
+        options.add(changeCountry);
+        options.add(updateShirt);
+        options.add(protectGenerated);
+        options.setAlignmentX(LEFT_ALIGNMENT);
+        header.add(options);
+        mode.setSelectedItem(Mode.KEEP_POSITION);
+        origin.addActionListener(e -> invalidatePreview("Origem alterada. Gere novamente."));
+        level.addChangeListener(e -> invalidatePreview("Nível alterado. Gere novamente."));
+        changeCountry.addActionListener(e -> invalidatePreview("Opções alteradas. Gere novamente."));
+        updateShirt.addActionListener(e -> invalidatePreview("Opções alteradas. Gere novamente."));
+        onlySelected.addActionListener(e -> invalidatePreview("Seleção do gerador alterada. Gere novamente."));
+        seed.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            private void changed() { invalidatePreview("Seed alterada. Gere novamente."); }
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { changed(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { changed(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { changed(); }
+        });
+        mode.addActionListener(e -> {
+            boolean needsIdentity = ((Mode)mode.getSelectedItem()).generatesIdentity();
+            origin.setEnabled(needsIdentity);
+            changeCountry.setEnabled(needsIdentity);
+            updateShirt.setEnabled(needsIdentity);
+            // Mudou configuração com prévia existente? Deve regenerar, não aplicar plano antigo.
+            invalidatePreview("Modo alterado. Gere uma nova prévia.");
+        });
         outer.add(header, BorderLayout.NORTH);
 
         table.setRowHeight(27);
@@ -141,16 +175,20 @@ public final class GeneratorProtectionDialog extends JDialog {
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.setAutoCreateRowSorter(true);
         table.getTableHeader().setReorderingAllowed(false);
-        int[] widths = {105, 75, 190, 75, 85, 195, 160, 90};
+        int[] widths = {100, 80, 170, 70, 70, 190, 75, 75, 80, 190};
         for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
-        JScrollPane tableScroll = new JScrollPane(table);
-        tableScroll.setBorder(BorderFactory.createTitledBorder("Elenco — selecione jogadores com Ctrl/Shift para aplicar em parte do clube"));
-        outer.add(tableScroll, BorderLayout.CENTER);
-
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setBorder(BorderFactory.createTitledBorder("Selecione jogadores com Ctrl/Shift. Duplo clique para editar uma proposta já gerada."));
+        outer.add(scroll, BorderLayout.CENTER);
+        table.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2) editSelected();
+            }
+        });
         JPanel bottom = new JPanel();
         bottom.setOpaque(false);
         bottom.setLayout(new BoxLayout(bottom, BoxLayout.Y_AXIS));
-        JPanel protections = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 5));
+        JPanel protections = new JPanel(new FlowLayout(FlowLayout.LEFT, 7, 3));
         protections.setOpaque(false);
         JButton protect = new JButton("Proteger selecionados");
         JButton unprotect = new JButton("Liberar selecionados");
@@ -165,46 +203,44 @@ public final class GeneratorProtectionDialog extends JDialog {
         protectAll.addActionListener(e -> changeProtection(true, true));
         unprotectAll.addActionListener(e -> changeProtection(false, true));
         bottom.add(protections);
-
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 5));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 3));
         actions.setOpaque(false);
         JButton generate = new JButton("Gerar prévia");
         generate.setBackground(GREEN);
         generate.setForeground(Color.WHITE);
         apply.setEnabled(false);
+        edit.setEnabled(false);
         apply.setBackground(DARK);
         apply.setForeground(Color.WHITE);
-        JButton clear = new JButton("Limpar prévia");
+        JButton clear = new JButton("Descartar prévia");
         JButton close = new JButton("Fechar");
         actions.add(generate);
+        actions.add(edit);
         actions.add(apply);
         actions.add(clear);
         actions.add(close);
         generate.addActionListener(e -> generatePreview());
+        edit.addActionListener(e -> editSelected());
         apply.addActionListener(e -> applyPreview());
         clear.addActionListener(e -> invalidatePreview("Prévia descartada."));
         close.addActionListener(e -> dispose());
         bottom.add(actions);
-        JLabel fileLabel = new JLabel("Proteção persistente: " + registry.file());
-        fileLabel.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        fileLabel.setAlignmentX(LEFT_ALIGNMENT);
-        bottom.add(fileLabel);
+        JLabel file = new JLabel("Proteção persistente: " + registry.file());
+        file.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        file.setAlignmentX(LEFT_ALIGNMENT);
+        bottom.add(file);
         status.setForeground(DARK);
         status.setAlignmentX(LEFT_ALIGNMENT);
-        bottom.add(Box.createVerticalStrut(5));
+        bottom.add(Box.createVerticalStrut(4));
         bottom.add(status);
         outer.add(bottom, BorderLayout.SOUTH);
     }
 
-    private List<String> selectedIds(boolean allRows) {
+    private List<String> selectedIds(boolean all) {
         List<String> ids = new ArrayList<>();
-        if (allRows) {
-            for (RosterEntry entry : entries) ids.add(entry.player().id());
-        } else {
-            int[] indices = table.getSelectedRows();
-            for (int viewIndex : indices) {
-                ids.add(entries.get(table.convertRowIndexToModel(viewIndex)).player().id());
-            }
+        if (all) for (RosterEntry e : entries) ids.add(e.player().id());
+        else for (int view : table.getSelectedRows()) {
+            ids.add(entries.get(table.convertRowIndexToModel(view)).player().id());
         }
         return ids;
     }
@@ -212,115 +248,155 @@ public final class GeneratorProtectionDialog extends JDialog {
     private void changeProtection(boolean protect, boolean all) {
         List<String> ids = selectedIds(all);
         if (ids.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Selecione um ou mais jogadores primeiro.");
+            JOptionPane.showMessageDialog(this, "Selecione jogadores primeiro.");
             return;
         }
-        if (all && !protect && JOptionPane.showConfirmDialog(this,
-                "Liberar todos os " + ids.size() + " jogadores deste elenco para geracao?",
-                "Confirmar liberacao", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-        Map<String, Boolean> original = new HashMap<>();
+        if (all && JOptionPane.showConfirmDialog(this,
+                (protect ? "Proteger" : "Liberar") + " os " + ids.size() + " jogadores deste clube?",
+                "Confirmar", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        Map<String, Boolean> snapshot = new HashMap<>();
         for (String id : ids) {
-            original.put(id, registry.isProtected(id));
+            snapshot.put(id, registry.isProtected(id));
             registry.setProtected(id, db.player(id).name(), protect);
         }
         try {
             registry.save();
-            invalidatePreview("Protecao " + (protect ? "ativada" : "desativada") + " em " + ids.size() + " jogador(es).");
+            invalidatePreview("Proteção " + (protect ? "ativada" : "desativada") + " em " + ids.size() + " jogador(es).");
             refreshCounts();
         } catch (IOException ex) {
-            for (String id : ids) registry.setProtected(id, db.player(id).name(), original.get(id));
-            JOptionPane.showMessageDialog(this, "Nao foi possivel salvar a lista de protecao:\n" + ex.getMessage(),
+            for (String id : ids) registry.setProtected(id, db.player(id).name(), snapshot.get(id));
+            JOptionPane.showMessageDialog(this, "Não foi possível salvar proteção:\n" + ex.getMessage(),
                     "Erro", JOptionPane.ERROR_MESSAGE);
         }
     }
 
     private void generatePreview() {
         try {
-            long value = Long.parseLong(seed.getText().strip());
+            long seedValue = Long.parseLong(seed.getText().strip());
             Origin selected = (Origin) origin.getSelectedItem();
             List<String> ids = selectedIds(!onlySelected.isSelected());
-            if (ids.isEmpty()) throw new IllegalArgumentException("Selecione jogadores ou desmarque o filtro.");
-            preview = generator.preview(db, ids, selected.code(), value);
+            if (ids.isEmpty()) throw new IllegalArgumentException("Selecione jogadores ou desmarque 'somente selecionados'.");
+            Options options = new Options((Mode) mode.getSelectedItem(), selected.code(), seedValue,
+                    (Integer)level.getValue(), changeCountry.isSelected(), updateShirt.isSelected());
+            preview = generator.preview(db, ids, options);
             if (preview.isEmpty()) {
-                invalidatePreview("Nenhum jogador elegivel. Libere jogadores protegidos ou mude a selecao.");
+                invalidatePreview("Nenhum jogador elegível. Verifique proteções e origem selecionada.");
                 return;
             }
             apply.setEnabled(true);
+            edit.setEnabled(true);
             model.fireTableDataChanged();
-            status.setText("Prévia: " + preview.size() + " novo(s) nome(s), "
-                    + (ids.size() - preview.size()) + " ignorado(s) (proteção / país sem biblioteca). Nenhum CSV modificado.");
+            status.setText("Prévia gerada: " + preview.size() + " jogador(es); " + (ids.size() - preview.size())
+                    + " ignorado(s). Duplo clique para editar nome, país, atributos e habilidades antes de aplicar.");
+        } catch (NumberFormatException ex) {
+            invalidatePreview("Seed inválida.");
+            JOptionPane.showMessageDialog(this, "Seed deve ser um número inteiro.", "Opções", JOptionPane.WARNING_MESSAGE);
         } catch (IllegalArgumentException ex) {
-            invalidatePreview("Falha ao gerar prévia.");
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Verifique as opções", JOptionPane.WARNING_MESSAGE);
+            invalidatePreview("Erro ao gerar prévia.");
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Opções", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private Draft draftFor(String playerId) {
+        for (Draft candidate : preview) if (candidate.playerId().equals(playerId)) return candidate;
+        return null;
+    }
+
+    private void editSelected() {
+        if (preview.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Primeiro clique em Gerar prévia.");
+            return;
+        }
+        if (table.getSelectedRow() < 0) {
+            JOptionPane.showMessageDialog(this, "Selecione um jogador da tabela.");
+            return;
+        }
+        String id = entries.get(table.convertRowIndexToModel(table.getSelectedRow())).player().id();
+        Draft draft = draftFor(id);
+        if (draft == null) {
+            JOptionPane.showMessageDialog(this, "Este jogador está protegido ou fora da prévia.");
+            return;
+        }
+        GeneratedPlayerEditorDialog editor = new GeneratedPlayerEditorDialog(this, db, draft);
+        editor.setVisible(true);
+        if (editor.wasSaved()) {
+            model.fireTableDataChanged();
+            status.setText("Proposta personalizada: " + draft.result(db, "Name")
+                    + ". Continua em prévia; clique em Aplicar prévia quando estiver satisfeito.");
         }
     }
 
     private void applyPreview() {
         if (preview.isEmpty()) return;
         if (JOptionPane.showConfirmDialog(this,
-                "Aplicar " + preview.size() + " nomes?\n"
-                + "Somente Name" + (updateShirt.isSelected() ? " e Shirt" : "") + " serão modificados.\n"
-                + "As alterações ficam na memória até EXPORTAR OS CSVs.\n"
-                + "ID, aparência, idade, posição, nacionalidade e clube permanecem intactos.",
+                "Aplicar " + preview.size() + " propostas editáveis à memória?\n"
+                + "IDs, aparências, altura/peso e vínculos permanecerão intactos.\n"
+                + "Os arquivos originais só são afetados se você os sobrescrever fora do Studio.\n"
+                + "Use Exportar 3 CSVs para criar novas cópias.",
                 "Confirmar geração", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
         try {
-            int amount = generator.apply(db, preview, updateShirt.isSelected());
-            String protectionWarning = "";
+            int amount = generator.apply(db, preview);
+            String note = "";
             if (protectGenerated.isSelected()) {
-                List<IdentityGenerator.Proposal> applied = preview;
-                for (var p : applied) registry.setProtected(p.playerId(), p.after(), true);
+                Map<String, Boolean> existing = new LinkedHashMap<>();
+                for (Draft draft : preview) {
+                    existing.put(draft.playerId(), registry.isProtected(draft.playerId()));
+                    registry.setProtected(draft.playerId(), db.player(draft.playerId()).name(), true);
+                }
                 try {
                     registry.save();
-                } catch (IOException e) {
-                    for (var p : applied) registry.setProtected(p.playerId(), p.after(), false);
-                    protectionWarning = " ATENCAO: nao foi possivel salvar protecao: " + e.getMessage();
-                    JOptionPane.showMessageDialog(this, protectionWarning,
-                            "Nomes aplicados, mas protecao nao salva", JOptionPane.WARNING_MESSAGE);
+                } catch (IOException ex) {
+                    for (Draft draft : preview) registry.setProtected(draft.playerId(), db.player(draft.playerId()).name(), existing.get(draft.playerId()));
+                    note = " AVISO: proteção não salva: " + ex.getMessage();
+                    JOptionPane.showMessageDialog(this, note, "Proteção não salva", JOptionPane.WARNING_MESSAGE);
                 }
             }
-            invalidatePreview("Aplicados " + amount + " nomes à memória. Use Exportar 3 CSVs na tela de times." + protectionWarning);
-            model.fireTableDataChanged();
+            invalidatePreview("Aplicados " + amount + " perfis em memória. Exporte os CSVs na tela Clubes." + note);
             refreshCounts();
             afterApply.run();
         } catch (IllegalArgumentException ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Não foi possível aplicar", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Prévia não aplicada", JOptionPane.ERROR_MESSAGE);
         }
     }
 
     private void invalidatePreview(String message) {
         preview = List.of();
         apply.setEnabled(false);
+        edit.setEnabled(false);
         model.fireTableDataChanged();
         status.setText(message);
     }
 
     private void refreshCounts() {
-        long protectedHere = entries.stream().filter(e -> registry.isProtected(e.player().id())).count();
-        counts.setText("Elenco: " + entries.size() + " • protegidos aqui: " + protectedHere
-                + " • livres: " + (entries.size() - protectedHere)
-                + " • protegidos na biblioteca: " + registry.size());
+        long protectedCount = entries.stream().filter(e -> registry.isProtected(e.player().id())).count();
+        counts.setText("Elenco: " + entries.size() + " | protegidos aqui: " + protectedCount
+                + " | livres: " + (entries.size()-protectedCount)
+                + " | protegidos na biblioteca: " + registry.size());
     }
 
     private final class Model extends AbstractTableModel {
-        private final String[] cols = {"Proteção", "ID", "Nome atual", "País", "Posição",
-                "Novo nome (prévia)", "Camisa (prévia)", "Origem"};
+        private final String[] columns = {"Proteção", "ID", "Nome atual", "País", "POS",
+                "Nome proposto", "Novo país", "Nova POS", "Nova idade", "Estilo previsto"};
         @Override public int getRowCount() { return entries.size(); }
-        @Override public int getColumnCount() { return cols.length; }
-        @Override public String getColumnName(int column) { return cols[column]; }
-        @Override public boolean isCellEditable(int row, int column) { return false; }
+        @Override public int getColumnCount() { return columns.length; }
+        @Override public String getColumnName(int col) { return columns[col]; }
+        @Override public boolean isCellEditable(int row, int col) { return false; }
         @Override public Object getValueAt(int row, int col) {
             var p = entries.get(row).player();
-            IdentityGenerator.Proposal proposal = preview.stream()
-                    .filter(s -> s.playerId().equals(p.id())).findFirst().orElse(null);
+            var active = db.player(p.id());
+            Draft d = draftFor(p.id());
+            if (col == 0) return registry.isProtected(p.id()) ? "PROTEGIDO" : "Livre";
+            if (col == 1) return p.id();
+            if (col == 2) return active.name();
+            if (col == 3) return active.country();
+            if (col == 4) return active.position();
+            if (d == null) return "—";
             return switch (col) {
-                case 0 -> registry.isProtected(p.id()) ? "PROTEGIDO" : "Livre";
-                case 1 -> p.id();
-                case 2 -> db.player(p.id()).name();
-                case 3 -> p.country();
-                case 4 -> p.position();
-                case 5 -> proposal == null ? "—" : proposal.after();
-                case 6 -> proposal == null ? "—" : proposal.shirt();
-                case 7 -> proposal == null ? "—" : proposal.country();
+                case 5 -> d.result(db, "Name");
+                case 6 -> d.result(db, "Country");
+                case 7 -> d.result(db, "POS");
+                case 8 -> d.result(db, "Age");
+                case 9 -> PlayingStyleCatalog.byCode(Integer.parseInt(d.result(db,"PlayingStyle"))).portuguese();
                 default -> "";
             };
         }

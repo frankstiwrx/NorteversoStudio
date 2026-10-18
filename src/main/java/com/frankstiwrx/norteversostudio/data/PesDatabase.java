@@ -139,6 +139,16 @@ public final class PesDatabase {
     public List<String> allPlayerNames() {
         return players.values().stream().map(Player::name).toList();
     }
+    /** Nomes em uso, ignorando somente os registros que serao renomeados. */
+    public List<String> allPlayerNamesExceptIds(Set<String> excluded) {
+        return players.values().stream().filter(p -> !excluded.contains(p.id()))
+                .map(Player::name).toList();
+    }
+    /** Valida todos os campos propostos ANTES da geracao em massa escrever dados. */
+    public void validatePlayerChanges(Map<String, String> changes) {
+        validateKeys(changes, PLAYER_EDITABLE, playersCsv, "jogador");
+        validatePlayer(changes);
+    }
     public boolean isAssignmentDirty(String id) { return initialAssignmentRows.containsKey(id); }
     public String assignmentField(String id, String field) {
         List<String> row = assignmentRows.get(id);
