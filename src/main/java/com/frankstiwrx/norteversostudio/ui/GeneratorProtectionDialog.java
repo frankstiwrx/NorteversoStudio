@@ -4,6 +4,7 @@ import com.frankstiwrx.norteversostudio.data.PesDatabase;
 import com.frankstiwrx.norteversostudio.data.PesDatabase.RosterEntry;
 import com.frankstiwrx.norteversostudio.data.PlayingStyleCatalog;
 import com.frankstiwrx.norteversostudio.generator.NameCatalog;
+import com.frankstiwrx.norteversostudio.generator.OverallTargetBalancer;
 import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService;
 import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService.Draft;
 import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService.Mode;
@@ -62,6 +63,7 @@ public final class GeneratorProtectionDialog extends JDialog {
     private final JComboBox<Origin> origin = new JComboBox<>();
     private final JTextField seed = new JTextField("20261017", 10);
     private final JSpinner level = new JSpinner(new SpinnerNumberModel(78, 50, 99, 1));
+    private final JCheckBox targetOverall = new JCheckBox("Ajustar ao overall desejado", true);
     private final JCheckBox onlySelected = new JCheckBox("Somente selecionados", false);
     private final JCheckBox changeCountry = new JCheckBox("Nacionalidade conforme origem do nome", true);
     private final JCheckBox updateShirt = new JCheckBox("Atualizar nome na camisa", true);
@@ -111,7 +113,7 @@ public final class GeneratorProtectionDialog extends JDialog {
         warning.setAlignmentX(LEFT_ALIGNMENT);
         header.add(warning);
         header.add(Box.createVerticalStrut(5));
-        JLabel hint = new JLabel("'Perfil completo' transforma um registro EXISTENTE — não cria novo ID. Nível é referência de atributos; NÃO é OVR garantido.");
+        JLabel hint = new JLabel("'Perfil completo' transforma um registro EXISTENTE — não cria novo ID. Com ajuste de OVR ativo, o nível é a nota-alvo.");
         hint.setForeground(GREEN);
         hint.setAlignmentX(LEFT_ALIGNMENT);
         header.add(hint);
@@ -136,7 +138,7 @@ public final class GeneratorProtectionDialog extends JDialog {
         for (String code : catalog.countries()) origin.addItem(new Origin("País: " + code, code));
         origin.setSelectedIndex(1);
         settings.add(origin);
-        settings.add(new JLabel("Nível de atributos:"));
+        settings.add(new JLabel("OVR desejado / nível de atributos:"));
         settings.add(level);
         settings.add(new JLabel("Seed:"));
         settings.add(seed);
@@ -144,6 +146,7 @@ public final class GeneratorProtectionDialog extends JDialog {
         header.add(settings);
         JPanel options = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
         options.setOpaque(false);
+        options.add(targetOverall);
         options.add(onlySelected);
         options.add(changeCountry);
         options.add(updateShirt);
@@ -153,6 +156,8 @@ public final class GeneratorProtectionDialog extends JDialog {
         mode.setSelectedItem(Mode.KEEP_POSITION);
         origin.addActionListener(e -> invalidatePreview("Origem alterada. Gere novamente."));
         level.addChangeListener(e -> invalidatePreview("Nível alterado. Gere novamente."));
+        targetOverall.addActionListener(e -> invalidatePreview("Modo de cálculo alterado. Gere novamente."));
+        targetOverall.setToolTipText("Com esta opção ativa, a nota escolhida passa a ser um overall-alvo para a geração técnica; a prévia mostra o OVR calculado.");
         changeCountry.addActionListener(e -> invalidatePreview("Opções alteradas. Gere novamente."));
         updateShirt.addActionListener(e -> invalidatePreview("Opções alteradas. Gere novamente."));
         onlySelected.addActionListener(e -> invalidatePreview("Seleção do gerador alterada. Gere novamente."));
@@ -167,6 +172,7 @@ public final class GeneratorProtectionDialog extends JDialog {
             origin.setEnabled(needsIdentity);
             changeCountry.setEnabled(needsIdentity);
             updateShirt.setEnabled(needsIdentity);
+            targetOverall.setEnabled(((Mode)mode.getSelectedItem()).generatesTechnical());
             // Mudou configuração com prévia existente? Deve regenerar, não aplicar plano antigo.
             invalidatePreview("Modo alterado. Gere uma nova prévia.");
         });
@@ -177,7 +183,7 @@ public final class GeneratorProtectionDialog extends JDialog {
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.setAutoCreateRowSorter(true);
         table.getTableHeader().setReorderingAllowed(false);
-        int[] widths = {100, 80, 170, 70, 70, 190, 75, 75, 80, 190};
+        int[] widths = {100, 80, 170, 70, 70, 190, 75, 75, 80, 190, 85, 85};
         for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createTitledBorder("Selecione jogadores com Ctrl/Shift. Duplo clique para editar uma proposta já gerada."));
@@ -303,6 +309,13 @@ public final class GeneratorProtectionDialog extends JDialog {
             Options options = new Options((Mode) mode.getSelectedItem(), selected.code(), seedValue,
                     (Integer)level.getValue(), changeCountry.isSelected(), updateShirt.isSelected());
             preview = generator.preview(db, ids, options);
+            if (targetOverall.isSelected() && ((Mode) mode.getSelectedItem()).generatesTechnical()) {
+                for (Draft draft : preview) {
+                    int position = Integer.parseInt(draft.result(db, "POS"));
+                    OverallTargetBalancer.tune(draft.edits(), key -> db.playerField(draft.playerId(), key),
+                            position, (Integer) level.getValue(), 99);
+                }
+            }
             if (preview.isEmpty()) {
                 invalidatePreview("Nenhum jogador elegível. Verifique proteções e origem selecionada.");
                 return;
@@ -310,8 +323,11 @@ public final class GeneratorProtectionDialog extends JDialog {
             apply.setEnabled(true);
             edit.setEnabled(true);
             model.fireTableDataChanged();
-            status.setText("Prévia gerada: " + preview.size() + " jogador(es); " + (ids.size() - preview.size())
-                    + " ignorado(s). Duplo clique para editar nome, país, atributos e habilidades antes de aplicar.");
+            long good = preview.stream().filter(d ->
+                    Math.abs(db.calculatedOverall(d.playerId(), d.edits()) - (Integer)level.getValue()) <= 1).count();
+            status.setText("Prévia: " + preview.size() + " jogador(es); " + (ids.size() - preview.size())
+                    + " ignorado(s). " + (targetOverall.isSelected() && ((Mode)mode.getSelectedItem()).generatesTechnical()
+                    ? good + " dentro de ±1 OVR. " : "") + "Duplo clique para personalizar.");
         } catch (NumberFormatException ex) {
             invalidatePreview("Seed inválida.");
             JOptionPane.showMessageDialog(this, "Seed deve ser um número inteiro.", "Opções", JOptionPane.WARNING_MESSAGE);
@@ -400,7 +416,7 @@ public final class GeneratorProtectionDialog extends JDialog {
 
     private final class Model extends AbstractTableModel {
         private final String[] columns = {"Proteção", "ID", "Nome atual", "País", "POS",
-                "Nome proposto", "Novo país", "Nova POS", "Nova idade", "Estilo previsto"};
+                "Nome proposto", "Novo país", "Nova POS", "Nova idade", "Estilo previsto", "OVR atual", "OVR prévia"};
         @Override public int getRowCount() { return entries.size(); }
         @Override public int getColumnCount() { return columns.length; }
         @Override public String getColumnName(int col) { return columns[col]; }
@@ -414,6 +430,8 @@ public final class GeneratorProtectionDialog extends JDialog {
             if (col == 2) return active.name();
             if (col == 3) return active.country();
             if (col == 4) return active.position();
+            if (col == 10) return db.calculatedOverall(p.id());
+            if (col == 11) return d == null ? "—" : db.calculatedOverall(p.id(), d.edits());
             if (d == null) return "—";
             return switch (col) {
                 case 5 -> d.result(db, "Name");

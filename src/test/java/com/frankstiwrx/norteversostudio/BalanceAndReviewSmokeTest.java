@@ -84,7 +84,8 @@ public final class BalanceAndReviewSmokeTest {
         var rTeams = Csv.ler(review.resolve("Time_APENAS_CLUBE.csv"));
         var rAssignments = Csv.ler(review.resolve("Atribuicoes_APENAS_CLUBE.csv"));
         check(rTeams.size() == 2, "Revisão deve ter exatamente 1 time");
-        check(rPlayers.size() > 20 && rPlayers.size() < 40, "Revisão tem jogadores demais ou de menos");
+        check(rPlayers.size() - 1 == players.stream().map(e -> e.player().id()).distinct().count(),
+                "Revisão não corresponde aos jogadores únicos do clube");
         check(rAssignments.size() == players.size() + 1, "Revisão tem vínculos incorretos");
         check(db.hasUnexportedChanges(), "Revisão NÃO pode limpar status de exportação pendente");
         System.out.println("OK Etapa10 | " + team.name() + " | " + plan.items().size()

@@ -64,6 +64,7 @@ public final class SquadGeneratorDialog extends JDialog {
         "Britânicos e norte-americanos", "Europa Central e Oriental", "Todos os países"});
     private final JSpinner baseLevel = new JSpinner(new SpinnerNumberModel(84, 58, 94, 1));
     private final JTextField seed = new JTextField("20261017", 10);
+    private final JCheckBox targetOverall = new JCheckBox("Ajustar ao overall (OVR) escolhido", true);
     private final JCheckBox nationality = new JCheckBox("Nacionalidade conforme nome", true);
     private final JCheckBox shirt = new JCheckBox("Atualizar nome na camisa", true);
     private final JCheckBox protectGenerated = new JCheckBox("Proteger gerados depois de aplicar", false);
@@ -126,7 +127,7 @@ public final class SquadGeneratorDialog extends JDialog {
         guide.setAlignmentX(LEFT_ALIGNMENT);
         header.add(guide);
         header.add(Box.createVerticalStrut(4));
-        JLabel ovr = new JLabel("OVR PES prévia = cálculo pelos atributos gerados. Nível referência ≠ OVR desejado; OverallStats do CSV não é atualizado.");
+        JLabel ovr = new JLabel("Novo: marque 'Ajustar ao overall' para o gerador aproximar o OVR calculado; não modifica o campo OverallStats.");
         ovr.setForeground(new Color(149, 82, 22));
         ovr.setAlignmentX(LEFT_ALIGNMENT);
         header.add(ovr);
@@ -139,49 +140,64 @@ public final class SquadGeneratorDialog extends JDialog {
         counts.setFont(counts.getFont().deriveFont(Font.BOLD));
         header.add(counts);
 
-        JPanel settings = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 5));
+        JPanel settings = new JPanel();
         settings.setOpaque(false);
-        settings.add(new JLabel("Divisão:"));
-        settings.add(division);
-        settings.add(new JLabel("Nível técnico (NÃO OVR):"));
-        settings.add(baseLevel);
-        settings.add(new JLabel("Origem dos nomes:"));
-        settings.add(origin);
-        settings.add(new JLabel("Seed (repete o sorteio):"));
-        settings.add(seed);
+        settings.setLayout(new BoxLayout(settings, BoxLayout.Y_AXIS));
+        JPanel line1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        line1.setOpaque(false);
+        line1.add(new JLabel("Divisão:"));
+        line1.add(division);
+        line1.add(new JLabel("OVR base / nível de referência:"));
+        line1.add(baseLevel);
+        JPanel line2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        line2.setOpaque(false);
+        line2.add(new JLabel("Origem dos nomes:"));
+        line2.add(origin);
+        line2.add(new JLabel("Seed (mesmo número reproduz resultado):"));
+        line2.add(seed);
+        settings.add(line1);
+        settings.add(line2);
         settings.setAlignmentX(LEFT_ALIGNMENT);
         header.add(settings);
         JPanel toggles = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
         toggles.setOpaque(false);
+        toggles.add(targetOverall);
         toggles.add(nationality);
         toggles.add(shirt);
         toggles.add(protectGenerated);
         header.add(toggles);
-        baseLevel.setToolTipText("Controla a força aproximada dos atributos. NÃO é o overall oficial do PES.");
+        baseLevel.setToolTipText("Com o ajuste de OVR marcado, vira meta central dos jogadores; as categorias aplicam bônus/descontos. Sem marcar, funciona como nível de referência antigo.");
+        targetOverall.setToolTipText("Usa o cálculo de overall do PES para ajustar os atributos de cada jogador à nota-alvo (tolerância preferida de ±1). Se não for alcançável, mostra a diferença.");
         division.setToolTipText("Preenche o nível técnico recomendado para a divisão. Você pode alterá-lo.");
         seed.setToolTipText("Mesmo número e mesmas opções reproduzem a mesma geração.");
         nationality.setToolTipText("Altera a nacionalidade esportiva para a origem escolhida; desligue se quiser preservar o país anterior.");
         protectGenerated.setToolTipText("Após aplicar, guarda os IDs para que gerações futuras não os alterem.");
 
-        JPanel distribution = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 3));
+        JPanel distribution = new JPanel(new BorderLayout(7, 2));
         distribution.setOpaque(false);
         distribution.setBorder(BorderFactory.createTitledBorder("Categorias — a soma deve ser igual aos jogadores livres"));
+        JPanel roleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 3));
+        roleRow.setOpaque(false);
         for (Role role : Role.values()) {
-            distribution.add(new JLabel(role + ":"));
+            roleRow.add(new JLabel(role + ":"));
             JSpinner count = new JSpinner(new SpinnerNumberModel(0, 0, 99, 1));
             roleInputs.put(role, count);
-            distribution.add(count);
+            roleRow.add(count);
             count.addChangeListener(e -> changedSettings());
         }
+        distribution.add(roleRow, BorderLayout.CENTER);
         JButton suggest = new JButton("Preencher categorias automaticamente");
-        distribution.add(suggest);
+        JPanel suggestRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        suggestRow.setOpaque(false);
+        suggestRow.add(suggest);
+        distribution.add(suggestRow, BorderLayout.SOUTH);
         suggest.addActionListener(e -> suggestRoles());
         distribution.setAlignmentX(LEFT_ALIGNMENT);
         header.add(distribution);
         summary.setAlignmentX(LEFT_ALIGNMENT);
         summary.setForeground(DARK);
         header.add(summary);
-        JLabel balanceHelp = new JLabel("Balanceamento: evita excesso de notas 95–99 na geração automática. Perfis editados manualmente continuam livres.");
+        JLabel balanceHelp = new JLabel("Com alvo OVR ativo: ajusta atributos por posição sem mexer nos IDs/rostos; confira a diferença na prévia antes de aplicar.");
         balanceHelp.setForeground(new Color(30, 105, 90));
         header.add(balanceHelp);
         header.add(Box.createVerticalStrut(5));
@@ -191,7 +207,7 @@ public final class SquadGeneratorDialog extends JDialog {
         table.setRowHeight(27);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         table.getTableHeader().setReorderingAllowed(false);
-        int[] width = {88, 180, 85, 100, 85, 190, 90, 75, 70, 80, 95};
+        int[] width = {88, 180, 85, 100, 85, 190, 90, 75, 70, 80, 95, 100};
         for (int i = 0; i < width.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(width[i]);
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -230,6 +246,7 @@ public final class SquadGeneratorDialog extends JDialog {
 
         division.addActionListener(e -> applyDivision());
         origin.addActionListener(e -> changedSettings());
+        targetOverall.addActionListener(e -> changedSettings());
         nationality.addActionListener(e -> changedSettings());
         shirt.addActionListener(e -> changedSettings());
         baseLevel.addChangeListener(e -> changedSettings());
@@ -268,7 +285,7 @@ public final class SquadGeneratorDialog extends JDialog {
         for (JSpinner spinner : roleInputs.values()) total += (Integer)spinner.getValue();
         summary.setText("Distribuição: " + total + "/" + eligible
                 + " jogadores livres | diferença: " + (eligible - total)
-                + " | referência, não OVR oficial.");
+                + (targetOverall.isSelected() ? " | OVR-base ajustado por categoria." : " | nível de referência (modo antigo)."));
     }
 
     private Config config() {
@@ -287,7 +304,7 @@ public final class SquadGeneratorDialog extends JDialog {
             default -> "MIX";
         };
         return new Config((Integer)baseLevel.getValue(), code, seedValue,
-                nationality.isSelected(), shirt.isSelected(), roles);
+                nationality.isSelected(), shirt.isSelected(), roles, targetOverall.isSelected());
     }
 
     private void generate() {
@@ -298,7 +315,14 @@ public final class SquadGeneratorDialog extends JDialog {
             editButton.setEnabled(true);
             reportButton.setEnabled(true);
             model.fireTableDataChanged();
-            status.setText("Prévia: " + preview.items().size() + " jogadores. Confira e edite antes de aplicar. Protegidos intocados.");
+            if (preview.config().targetOverall()) {
+                long close = preview.items().stream().filter(i ->
+                        Math.abs(db.calculatedOverall(i.playerId(), i.draft().edits()) - i.targetLevel()) <= 1).count();
+                status.setText("Prévia: " + close + "/" + preview.items().size()
+                        + " atingiram o alvo (±1 OVR). Confira os demais pela coluna 'Diferença OVR'.");
+            } else {
+                status.setText("Prévia: " + preview.items().size() + " jogadores (modo referência). Confira e edite antes de aplicar.");
+            }
         } catch (IllegalArgumentException ex) {
             invalidatePreview("Não foi possível gerar prévia.");
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Gerador de elenco", JOptionPane.WARNING_MESSAGE);
@@ -332,7 +356,7 @@ public final class SquadGeneratorDialog extends JDialog {
                 "Aplicar " + preview.items().size() + " jogadores à memória?\n"
                 + "IDs, faces, clubes e jogadores protegidos serão mantidos.\n"
                 + "Ainda será necessário exportar os 3 CSVs na tela Clubes.\n"
-                + "OverallStats NÃO será recalculado automaticamente.",
+                + "O campo OverallStats permanece original; o OVR é calculado pelos atributos.",
                 "Aplicar geração", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
         if (answer != JOptionPane.YES_OPTION) return;
         try {
@@ -403,7 +427,7 @@ public final class SquadGeneratorDialog extends JDialog {
 
     private final class RosterModel extends AbstractTableModel {
         private final String[] columns = {"ID", "Nome atual", "Posição", "Categoria", "Nível ref.",
-                "Novo nome", "País PES", "Idade", "OVR PES atual", "OVR PES prévia", "Status"};
+                "Novo nome", "País PES", "Idade", "OVR PES atual", "OVR PES prévia", "Status", "Diferença OVR"};
         @Override public int getRowCount() { return roster.size(); }
         @Override public int getColumnCount() { return columns.length; }
         @Override public String getColumnName(int col) { return columns[col]; }
@@ -421,6 +445,8 @@ public final class SquadGeneratorDialog extends JDialog {
             if (col == 8) return db.calculatedOverall(id);
             if (col == 10) return registry.isProtected(id) ? "PROTEGIDO" : (item == null ? "Livre" : "Prévia");
             if (item == null) return "—";
+            if (col == 11) return preview.config().targetOverall()
+                    ? db.calculatedOverall(id, item.draft().edits()) - item.targetLevel() : "—";
             return switch (col) {
                 case 3 -> item.role().toString();
                 case 4 -> item.targetLevel();

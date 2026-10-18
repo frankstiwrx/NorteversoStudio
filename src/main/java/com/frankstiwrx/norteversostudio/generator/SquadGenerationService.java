@@ -1,6 +1,7 @@
 package com.frankstiwrx.norteversostudio.generator;
 
 import com.frankstiwrx.norteversostudio.data.PesDatabase;
+import com.frankstiwrx.norteversostudio.data.OverallCalculator;
 import com.frankstiwrx.norteversostudio.data.PesDatabase.RosterEntry;
 import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService.Draft;
 import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService.Mode;
@@ -20,7 +21,8 @@ import java.util.Set;
 /**
  * Etapa 09: monta um plano de elenco para jogadores EXISTENTES.
  * Nenhum metodo de preview grava CSV, altera time, ID, aparencia ou vinculo.
- * 'nivel de referencia' NAO e o OverallStats oficial do PES.
+ * Com 'targetOverall=true', nivel por categoria e alvo da nota calculada;
+ * o campo OverallStats do CSV original continua preservado.
  */
 public final class SquadGenerationService {
     public enum Division {
@@ -62,7 +64,13 @@ public final class SquadGenerationService {
     /** Categorias devem totalizar o numero de jogadores NAO protegidos do clube. */
     public record Config(int baseLevel, String origin, long seed,
                          boolean changeNationality, boolean updateShirt,
-                         Map<Role, Integer> roles) {
+                         Map<Role, Integer> roles, boolean targetOverall) {
+        // Compatibilidade: chamadas da Etapa 09/10 continuam em modo de referência.
+        public Config(int baseLevel, String origin, long seed,
+                      boolean changeNationality, boolean updateShirt,
+                      Map<Role, Integer> roles) {
+            this(baseLevel, origin, seed, changeNationality, updateShirt, roles, false);
+        }
         public Config {
             if (baseLevel < 58 || baseLevel > 94) throw new IllegalArgumentException("Nível base deve ficar entre 58 e 94.");
             if (origin == null || origin.isBlank()) throw new IllegalArgumentException("Escolha a origem dos nomes.");
@@ -193,6 +201,14 @@ public final class SquadGenerationService {
             for (String field : PesDatabase.ATTRIBUTES) {
                 proposal.edits().put(field, attrs.get(0).edits().get(field));
             }
+            int position = Integer.parseInt(db.player(id).position());
+            SquadBalancePolicy.balance(proposal.edits(), role, target, position);
+            if (config.targetOverall()) {
+                int ceiling = SquadBalancePolicy.ceiling(role, target);
+                if (role == Role.STAR && target >= 85) ceiling = Math.min(97, ceiling + 2);
+                OverallTargetBalancer.tune(proposal.edits(),
+                        field -> db.playerField(id, field), position, target, ceiling);
+            }
             // Idades coerentes com a categoria: promessa e veterano se diferenciam.
             int age = role.minAge() + rng.nextInt(role.maxAge() - role.minAge() + 1);
             proposal.edits().put("Age", Integer.toString(age));
@@ -223,6 +239,10 @@ public final class SquadGenerationService {
             header.add(field + "_Antes");
             header.add(field + "_Proposto");
         }
+        header.add("OverallPESCalculadoAntes");
+        header.add("OverallPESCalculadoProposto");
+        header.add("OverallAlvoSeHabilitado");
+        header.add("DiferencaPropostoMenosAlvo");
         List<List<String>> result = new ArrayList<>();
         result.add(header);
         Map<String, Item> itemById = new HashMap<>();
@@ -250,6 +270,12 @@ public final class SquadGenerationService {
                 row.add(db.playerField(id, field));
                 row.add(draft == null ? db.playerField(id, field) : draft.result(db, field));
             }
+            int beforeOVR = db.calculatedOverall(id);
+            int proposedOVR = draft == null ? beforeOVR : db.calculatedOverall(id, draft.edits());
+            row.add(Integer.toString(beforeOVR));
+            row.add(Integer.toString(proposedOVR));
+            row.add(item == null || !preview.config().targetOverall() ? "" : Integer.toString(item.targetLevel()));
+            row.add(item == null || !preview.config().targetOverall() ? "" : Integer.toString(proposedOVR - item.targetLevel()));
             result.add(row);
         }
         return result;
