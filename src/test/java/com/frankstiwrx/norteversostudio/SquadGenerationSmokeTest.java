@@ -96,7 +96,7 @@ public final class SquadGenerationSmokeTest {
         check(gen.apply(db, plan) == eligible, "Aplicacao incompleta");
         check(db.player(protectedId).name().equals(protectedName), "Protegido modificado");
         check(db.playerField(first.playerId(), "Country").equals("207"), "Nacionalidade editavel falhou");
-        check(db.playerField(first.playerId(), "Name").equals("Martin Silva"), "Nome editavel falhou");
+        check(db.playerField(first.playerId(), "Name").equals("MARTIN SILVA"), "Nome editavel falhou");
         for (var item : plan.items()) {
             String id = item.playerId();
             check(db.playerField(id,"Id").equals(oldIds.get(id)), "ID alterado");
@@ -110,7 +110,7 @@ public final class SquadGenerationSmokeTest {
         Path assigned = temp.resolve("Atribuicao_Norteverso.csv");
         db.exportAll(players, teams, assigned);
         PesDatabase roundtrip = PesDatabase.load(players, teams, assigned, msg -> {});
-        check(roundtrip.player(first.playerId()).name().equals("Martin Silva"), "Roundtrip falhou");
+        check(roundtrip.player(first.playerId()).name().equals("MARTIN SILVA"), "Roundtrip falhou");
         check(roundtrip.roster(team.id()).size() == source.size(), "Elenco foi reatribuido");
         check(roundtrip.player(protectedId).name().equals(protectedName), "Protegido alterado no CSV");
         System.out.println("OK Etapa09 | Clube: " + team.name() + " | Elenco: " + source.size()

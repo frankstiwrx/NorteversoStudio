@@ -3,6 +3,7 @@ package com.frankstiwrx.norteversostudio.ui;
 import com.frankstiwrx.norteversostudio.data.AttributeAdjuster;
 import com.frankstiwrx.norteversostudio.data.PesDatabase;
 import com.frankstiwrx.norteversostudio.data.PlayingStyleCatalog;
+import com.frankstiwrx.norteversostudio.generator.PlayerNameFormat;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -344,6 +345,10 @@ public final class PlayerEditorDialog extends JDialog {
             return;
         }
         Map<String, String> values = changesOnly();
+        // Somente campos editados: nao converte nomes de jogadores nao alterados.
+        for (String key : List.of("Name", "Shirt", "ShirtNational")) {
+            if (values.containsKey(key)) values.put(key, PlayerNameFormat.upper(values.get(key)));
+        }
         if (values.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Nenhuma alteracao para aplicar.");
             return;

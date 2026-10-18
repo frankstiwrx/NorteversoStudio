@@ -101,9 +101,9 @@ public final class PlayerGenerationService {
             String origin = "—";
             if (options.mode().generatesIdentity()) {
                 var proposed = identity.get(id);
-                changes.put("Name", proposed.after());
+                changes.put("Name", PlayerNameFormat.upper(proposed.after()));
                 origin = proposed.country();
-                if (options.updateShirt()) changes.put("Shirt", proposed.shirt());
+                if (options.updateShirt()) changes.put("Shirt", PlayerNameFormat.upper(proposed.shirt()));
                 if (options.changeNationality()) {
                     String newCode = PesNationalityCatalog.pesCountryForOrigin(origin);
                     if (newCode != null) changes.put("Country", newCode);
@@ -141,6 +141,15 @@ public final class PlayerGenerationService {
 
     public int apply(PesDatabase db, List<Draft> drafts) {
         if (db == null) throw new IllegalArgumentException("Nenhuma base carregada.");
+        // Mantem o padrao visual do PES inclusive nas previas editadas manualmente.
+        for (Draft draft : drafts) {
+            if (draft.edits.containsKey("Name")) {
+                draft.edits.put("Name", PlayerNameFormat.upper(draft.edits.get("Name")));
+            }
+            if (draft.edits.containsKey("Shirt")) {
+                draft.edits.put("Shirt", PlayerNameFormat.upper(draft.edits.get("Shirt")));
+            }
+        }
         Set<String> ids = new HashSet<>();
         Set<String> occupiedNames = new HashSet<>();
         Set<String> changedIds = new HashSet<>();

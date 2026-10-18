@@ -55,7 +55,7 @@ public final class IdentityGenerator {
             }
             if (candidate == null) throw new IllegalArgumentException(
                     "Nao foi possivel gerar nome unico para " + id + " nesse perfil. Tente outra origem.");
-            proposals.add(new Proposal(id, player.name(), candidate.fullName(),
+            proposals.add(new Proposal(id, player.name(), PlayerNameFormat.upper(candidate.fullName()),
                     candidate.shirtName(), candidate.country()));
         }
         return List.copyOf(proposals);
@@ -88,8 +88,8 @@ public final class IdentityGenerator {
         }
         for (Proposal p : proposals) {
             Map<String, String> edits = new LinkedHashMap<>();
-            edits.put("Name", p.after());
-            if (updateShirt) edits.put("Shirt", p.shirt());
+            edits.put("Name", PlayerNameFormat.upper(p.after()));
+            if (updateShirt) edits.put("Shirt", PlayerNameFormat.upper(p.shirt()));
             db.editPlayer(p.playerId(), edits);
         }
         return proposals.size();

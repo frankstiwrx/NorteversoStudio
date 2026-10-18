@@ -3,6 +3,7 @@ package com.frankstiwrx.norteversostudio.ui;
 import com.frankstiwrx.norteversostudio.data.PesDatabase;
 import com.frankstiwrx.norteversostudio.data.PlayingStyleCatalog;
 import com.frankstiwrx.norteversostudio.generator.PesNationalityCatalog;
+import com.frankstiwrx.norteversostudio.generator.PlayerNameFormat;
 import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService.Draft;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
@@ -191,7 +192,14 @@ public final class GeneratedPlayerEditorDialog extends JDialog {
         try {
             // Só acrescenta campos fora do modo original quando o usuário os mudou.
             Map<String, String> changed = new LinkedHashMap<>(draft.edits());
-            for (var e : text.entrySet()) putIfChanged(changed, e.getKey(), e.getValue().getText().strip());
+            for (var e : text.entrySet()) {
+                String value = e.getValue().getText().strip();
+                if (e.getKey().equals("Name") || e.getKey().equals("Shirt")) {
+                    value = PlayerNameFormat.upper(value);
+                    e.getValue().setText(value);
+                }
+                putIfChanged(changed, e.getKey(), value);
+            }
             putIfChanged(changed, "POS", position.getValue().toString());
             putIfChanged(changed, "PlayingStyle", Integer.toString(((PlayingStyleCatalog.Choice)style.getSelectedItem()).code()));
             if (attributeTable.isEditing()) attributeTable.getCellEditor().stopCellEditing();
