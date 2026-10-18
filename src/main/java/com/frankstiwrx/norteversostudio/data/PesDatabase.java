@@ -135,6 +135,10 @@ public final class PesDatabase {
     public boolean isPlayerDirty(String id) { return initialPlayerRows.containsKey(id); }
     public boolean isTeamDirty(String id) { return initialTeamRows.containsKey(id); }
     public Player player(String id) { return players.get(id); }
+    /** Consulta utilizada pelo gerador para evitar duplicar nomes em toda a base PES. */
+    public List<String> allPlayerNames() {
+        return players.values().stream().map(Player::name).toList();
+    }
     public boolean isAssignmentDirty(String id) { return initialAssignmentRows.containsKey(id); }
     public String assignmentField(String id, String field) {
         List<String> row = assignmentRows.get(id);

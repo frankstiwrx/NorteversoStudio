@@ -2,6 +2,8 @@ package com.frankstiwrx.norteversostudio.ui;
 
 import com.frankstiwrx.norteversostudio.data.PesDatabase;
 import com.frankstiwrx.norteversostudio.data.PesDatabase.RosterEntry;
+import com.frankstiwrx.norteversostudio.generator.NameCatalog;
+import com.frankstiwrx.norteversostudio.generator.ProtectionRegistry;
 import com.frankstiwrx.norteversostudio.data.PesDatabase.Team;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -60,6 +62,7 @@ public final class ElencosPanel extends JPanel {
     private final JButton assignmentButton = new JButton("Camisa / capitão...");
     private final JButton transferButton = new JButton("Transferir...");
     private final JButton formationButton = new JButton("Formação...");
+    private final JButton generatorButton = new JButton("Gerador / Protetor...");
     private final JButton exportButton = new JButton("Exportar 3 CSVs...");
     private final JTextField teamSearch = new JTextField();
     private final JTextField playerSearch = new JTextField();
@@ -73,6 +76,8 @@ public final class ElencosPanel extends JPanel {
     private final JTable rosterTable = new JTable(rosterTableModel);
     private final TableRowSorter<RosterTableModel> rosterSorter = new TableRowSorter<>(rosterTableModel);
     private PesDatabase database;
+    private ProtectionRegistry protectionRegistry;
+    private NameCatalog nameCatalog;
     private File lastDirectory;
 
     public ElencosPanel(Consumer<String> globalStatus) {
@@ -89,6 +94,7 @@ public final class ElencosPanel extends JPanel {
         assignmentButton.setEnabled(false);
         transferButton.setEnabled(false);
         formationButton.setEnabled(false);
+        generatorButton.setEnabled(false);
         exportButton.setEnabled(false);
     }
 
@@ -115,6 +121,7 @@ public final class ElencosPanel extends JPanel {
         assignmentButton.addActionListener(e -> editSelectedAssignment());
         transferButton.addActionListener(e -> transferSelected());
         formationButton.addActionListener(e -> editFormation());
+        generatorButton.addActionListener(e -> openGenerator());
         exportButton.addActionListener(e -> exportEdited());
         toolbar.add(loadButton);
         toolbar.add(editPlayerButton);
@@ -125,6 +132,15 @@ public final class ElencosPanel extends JPanel {
         toolbar.add(exportButton);
         toolbar.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(toolbar);
+        top.add(Box.createVerticalStrut(7));
+        JPanel generatorRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
+        generatorRow.setBackground(FUNDO);
+        generatorRow.add(generatorButton);
+        JLabel generatorNote = new JLabel("Proteja históricos e gere novos nomes sem alterar IDs, atributos e faces.");
+        generatorNote.setForeground(new Color(76, 102, 96));
+        generatorRow.add(generatorNote);
+        generatorRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(generatorRow);
         top.add(Box.createVerticalStrut(9));
         summary.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(summary);
@@ -321,6 +337,7 @@ public final class ElencosPanel extends JPanel {
             editPlayerButton.setEnabled(false);
             editTeamButton.setEnabled(false);
             formationButton.setEnabled(false);
+            generatorButton.setEnabled(false);
             assignmentButton.setEnabled(false);
             transferButton.setEnabled(false);
             return;
@@ -329,6 +346,7 @@ public final class ElencosPanel extends JPanel {
         rosterTableModel.load(roster);
         editTeamButton.setEnabled(true);
         formationButton.setEnabled(true);
+        generatorButton.setEnabled(!team.national());
         editPlayerButton.setEnabled(false);
         assignmentButton.setEnabled(false);
         transferButton.setEnabled(false);
@@ -430,6 +448,32 @@ public final class ElencosPanel extends JPanel {
         }).setVisible(true);
     }
 
+    private void openGenerator() {
+        if (database == null || teamList.getSelectedValue() == null
+                || teamList.getSelectedValue().national()) return;
+        try {
+            // Protetor local e persistente. Nao altera dados do PES nem salva no EDIT.
+            if (protectionRegistry == null) {
+                protectionRegistry = ProtectionRegistry.load(
+                        Path.of("dados", "jogadores_protegidos.csv"));
+            }
+            if (nameCatalog == null) {
+                nameCatalog = NameCatalog.load(Path.of("dados", "nomes.csv"),
+                        Path.of("dados", "sobrenomes.csv"));
+            }
+            String id = teamList.getSelectedValue().id();
+            new GeneratorProtectionDialog(SwingUtilities.getWindowAncestor(this),
+                    database, id, protectionRegistry, nameCatalog, () -> {
+                        showRoster(teamList.getSelectedValue());
+                        updateDirty();
+                    }).setVisible(true);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage()
+                    + "\nVerifique a pasta dados/ e os arquivos de biblioteca.",
+                    "Gerador nao disponivel", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private void editFormation() {
         if (database == null || teamList.getSelectedValue() == null) return;
         Path tactics = chooseFile("Selecione Táticas - PES 2021 - Bin.csv");
@@ -502,6 +546,8 @@ public final class ElencosPanel extends JPanel {
                 loadButton.setEnabled(true);
                 editTeamButton.setEnabled(teamList.getSelectedValue() != null);
                 formationButton.setEnabled(teamList.getSelectedValue() != null);
+                generatorButton.setEnabled(teamList.getSelectedValue() != null
+                        && !teamList.getSelectedValue().national());
                 editPlayerButton.setEnabled(selectedPlayerId() != null);
                 assignmentButton.setEnabled(selectedAssignmentId() != null);
                 transferButton.setEnabled(selectedAssignmentId() != null);
