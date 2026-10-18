@@ -126,7 +126,7 @@ public final class SquadGeneratorDialog extends JDialog {
         guide.setAlignmentX(LEFT_ALIGNMENT);
         header.add(guide);
         header.add(Box.createVerticalStrut(4));
-        JLabel ovr = new JLabel("IMPORTANTE: Nível de referência ≠ overall do PES. OverallStats original permanece inalterado no CSV.");
+        JLabel ovr = new JLabel("OVR PES prévia = cálculo pelos atributos gerados. Nível referência ≠ OVR desejado; OverallStats do CSV não é atualizado.");
         ovr.setForeground(new Color(149, 82, 22));
         ovr.setAlignmentX(LEFT_ALIGNMENT);
         header.add(ovr);
@@ -403,7 +403,7 @@ public final class SquadGeneratorDialog extends JDialog {
 
     private final class RosterModel extends AbstractTableModel {
         private final String[] columns = {"ID", "Nome atual", "Posição", "Categoria", "Nível ref.",
-                "Novo nome", "País PES", "Idade", "OVR base", "Média proj.", "Status"};
+                "Novo nome", "País PES", "Idade", "OVR PES atual", "OVR PES prévia", "Status"};
         @Override public int getRowCount() { return roster.size(); }
         @Override public int getColumnCount() { return columns.length; }
         @Override public String getColumnName(int col) { return columns[col]; }
@@ -418,7 +418,7 @@ public final class SquadGeneratorDialog extends JDialog {
             if (col == 0) return id;
             if (col == 1) return player.name();
             if (col == 2) return PesDatabase.POSITIONS.get(Integer.parseInt(player.position()));
-            if (col == 8) return player.overall();
+            if (col == 8) return db.calculatedOverall(id);
             if (col == 10) return registry.isProtected(id) ? "PROTEGIDO" : (item == null ? "Livre" : "Prévia");
             if (item == null) return "—";
             return switch (col) {
@@ -427,7 +427,7 @@ public final class SquadGeneratorDialog extends JDialog {
                 case 5 -> item.draft().result(db, "Name");
                 case 6 -> item.draft().result(db, "Country");
                 case 7 -> item.draft().result(db, "Age");
-                case 9 -> SquadGenerationService.averageTechnical(db, id, item.draft(), player.position());
+                case 9 -> db.calculatedOverall(id, item.draft().edits());
                 default -> "";
             };
         }

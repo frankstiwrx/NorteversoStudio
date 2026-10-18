@@ -658,9 +658,9 @@ public final class ElencosPanel extends JPanel {
         return raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    private static final class RosterTableModel extends AbstractTableModel {
+    private final class RosterTableModel extends AbstractTableModel {
         private static final String[] HEADERS = {
-                "Camisa", "ID", "Nome", "Idade", "POS (cód.)", "Overall",
+                "Camisa", "ID", "Nome", "Idade", "POS (cód.)", "OVR PES (calc.)",
                 "País (cód.)", "Altura", "Peso", "Estilo (cód.)"
         };
         private List<RosterEntry> rows = List.of();
@@ -682,7 +682,7 @@ public final class ElencosPanel extends JPanel {
                 case 2 -> p.name();
                 case 3 -> p.age();
                 case 4 -> p.position();
-                case 5 -> p.overall();
+                case 5 -> database.calculatedOverall(p.id());
                 case 6 -> p.country();
                 case 7 -> p.height();
                 case 8 -> p.weight();

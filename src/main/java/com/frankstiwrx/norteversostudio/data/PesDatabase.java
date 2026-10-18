@@ -266,6 +266,17 @@ public final class PesDatabase {
         if (!playerRows.containsKey(id)) throw new IllegalArgumentException("Jogador inexistente: " + id);
         return playerRows.get(id).get(playersCsv.columns.get(field));
     }
+    /** Overall recalculado conforme os atributos atuais, não o OverallStats importado. */
+    public int calculatedOverall(String id) {
+        return OverallCalculator.calculate(field -> playerField(id, field));
+    }
+
+    /** Overall de uma prévia antes de Aplicar: modificações têm precedência. */
+    public int calculatedOverall(String id, Map<String, String> overrides) {
+        return OverallCalculator.calculate(field ->
+                overrides.getOrDefault(field, playerField(id, field)));
+    }
+
     public String teamField(String id, String field) {
         if (!teamRows.containsKey(id)) throw new IllegalArgumentException("Time inexistente: " + id);
         return teamRows.get(id).get(teamsCsv.columns.get(field));

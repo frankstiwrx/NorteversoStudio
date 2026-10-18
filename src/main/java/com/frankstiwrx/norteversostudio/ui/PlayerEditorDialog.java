@@ -1,6 +1,7 @@
 package com.frankstiwrx.norteversostudio.ui;
 
 import com.frankstiwrx.norteversostudio.data.AttributeAdjuster;
+import com.frankstiwrx.norteversostudio.data.OverallCalculator;
 import com.frankstiwrx.norteversostudio.data.PesDatabase;
 import com.frankstiwrx.norteversostudio.data.PlayingStyleCatalog;
 import com.frankstiwrx.norteversostudio.generator.PlayerNameFormat;
@@ -37,6 +38,8 @@ import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 /** Edicao de jogador: preserva ID, registros e recursos originais de aparencia. */
 public final class PlayerEditorDialog extends JDialog {
@@ -50,6 +53,7 @@ public final class PlayerEditorDialog extends JDialog {
     private final Map<String, JTextField> text = new LinkedHashMap<>();
     private final Map<String, JCheckBox> checks = new LinkedHashMap<>();
     private final JLabel badge = new JLabel();
+    private final JLabel liveOvr = new JLabel("OVR PES: calculando...");
     private final JComboBox<PlayingStyleCatalog.Choice> style = new JComboBox<>(
             PlayingStyleCatalog.all().toArray(PlayingStyleCatalog.Choice[]::new));
     private final JSpinner reputation = new JSpinner(new SpinnerNumberModel(2, 1, 8, 1));
@@ -76,6 +80,8 @@ public final class PlayerEditorDialog extends JDialog {
         add(tabs, BorderLayout.CENTER);
         add(createFooter(), BorderLayout.SOUTH);
         reloadFields();
+        installOvrListeners();
+        updateLiveOvr();
     }
 
     private JPanel createBanner() {
@@ -85,6 +91,10 @@ public final class PlayerEditorDialog extends JDialog {
         badge.setFont(new Font("SansSerif", Font.BOLD, 19));
         badge.setForeground(Color.WHITE);
         panel.add(badge, BorderLayout.CENTER);
+        liveOvr.setFont(new Font("SansSerif", Font.BOLD, 17));
+        liveOvr.setForeground(Color.WHITE);
+        liveOvr.setToolTipText("OVR recalculado pela fórmula publicada para PES 2021. Não altera o CSV automaticamente.");
+        panel.add(liveOvr, BorderLayout.EAST);
         JLabel note = new JLabel("ID " + playerId + "  |  CSV de aparencia, face 3D e miniface nao alterados");
         note.setForeground(Color.WHITE);
         panel.add(note, BorderLayout.SOUTH);
@@ -156,7 +166,7 @@ public final class PlayerEditorDialog extends JDialog {
         outer.add(columns, BorderLayout.CENTER);
         JPanel foot = new JPanel(new BorderLayout());
         foot.add(bulkMessage, BorderLayout.NORTH);
-        JLabel note = new JLabel("Peso por atributo definido pelo Norteverso; limite: 1 a 127. OVR nao e recalculado aqui.");
+        JLabel note = new JLabel("Peso por atributo definido pelo Norteverso; limite: 1 a 127. OVR PES de prévia é recalculado ao editar atributos.");
         note.setForeground(new Color(93, 98, 105));
         foot.add(note, BorderLayout.SOUTH);
         outer.add(foot, BorderLayout.SOUTH);
@@ -383,9 +393,37 @@ public final class PlayerEditorDialog extends JDialog {
     }
     private boolean hasUnsaved() { return !changesOnly().isEmpty(); }
 
+    private void installOvrListeners() {
+        DocumentListener listener = new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { updateLiveOvr(); }
+            @Override public void removeUpdate(DocumentEvent e) { updateLiveOvr(); }
+            @Override public void changedUpdate(DocumentEvent e) { updateLiveOvr(); }
+        };
+        for (String key : PesDatabase.ATTRIBUTES) {
+            JTextField input = text.get(key);
+            if (input != null) input.getDocument().addDocumentListener(listener);
+        }
+        for (String key : new String[]{"POS", "WeakFootAcc"}) {
+            JTextField input = text.get(key);
+            if (input != null) input.getDocument().addDocumentListener(listener);
+        }
+    }
+
+    private void updateLiveOvr() {
+        try {
+            int calculated = OverallCalculator.calculate(field -> {
+                JTextField input = text.get(field);
+                return input == null ? database.playerField(playerId, field) : input.getText();
+            });
+            liveOvr.setText("OVR PES (prévia): " + calculated);
+        } catch (IllegalArgumentException ex) {
+            liveOvr.setText("OVR PES: —");
+        }
+    }
+
     private void reloadFields() {
         var player = database.player(playerId);
-        badge.setText(player.name() + "   |   OVR " + player.overall());
+        badge.setText(player.name() + "   |   CSV original: " + player.overall());
         for (var e : text.entrySet()) {
             e.getValue().setText(database.playerField(playerId, e.getKey()));
             e.getValue().setBackground(Color.WHITE);
@@ -397,6 +435,7 @@ public final class PlayerEditorDialog extends JDialog {
                 Integer.parseInt(database.playerField(playerId, "PlayingStyle"))));
         reputation.setValue(Integer.parseInt(database.playerField(playerId, "Reputation")));
         bulkMessage.setText("Ajustes ficam em previa ate clicar em Aplicar jogador.");
+        updateLiveOvr();
     }
 
     private static void addFormSpacer(JPanel panel) {
