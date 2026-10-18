@@ -2,6 +2,7 @@ package com.frankstiwrx.norteversostudio.ui;
 
 import com.frankstiwrx.norteversostudio.csv.Csv;
 import com.frankstiwrx.norteversostudio.data.PesDatabase;
+import com.frankstiwrx.norteversostudio.data.TacticsFields;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -9,6 +10,9 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.Window;
 import java.io.IOException;
@@ -16,7 +20,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +32,8 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
@@ -36,10 +41,14 @@ import javax.swing.SpinnerNumberModel;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.table.AbstractTableModel;
 
-/** Formaçao em 2D a partir dos CSVs Táticas e TacticsFormation; exporta só uma cópia. */
+/** Editor das posições e parâmetros táticos CSV, preservando os arquivos originais. */
 public final class FormationEditorDialog extends JDialog {
     private static final String[] POSITIONS = {"GO", "ZC", "LE", "LD", "VOL", "MC", "ME", "MD", "MAT", "PTE", "PTD", "SA", "CA"};
     private final List<List<String>> formations;
+    private final List<List<String>> tactics;
+    private final Map<String, JSpinner> tacticSpinners = new LinkedHashMap<>();
+    private final Path tacticsSource;
+    private final List<PesDatabase.RosterEntry> roster;
     private final Map<String, Integer> formationColumns, tacticColumns;
     private final List<List<String>> teamTactics = new ArrayList<>();
     private final JComboBox<TacticOption> tacticSelector = new JComboBox<>();
@@ -54,6 +63,7 @@ public final class FormationEditorDialog extends JDialog {
     private final JLabel details = new JLabel(" ");
     private final Path source;
     private int changes = 0;
+    private int tacticChanges = 0;
     private boolean selecting = false;
 
     private record TacticOption(String id, String strategy) {
@@ -66,13 +76,15 @@ public final class FormationEditorDialog extends JDialog {
         if (tactics.isEmpty() || formations.isEmpty()) throw new IOException("CSV de tática ou formação vazio.");
         Map<String, Integer> tc = columns(tactics.get(0)), fc = columns(formations.get(0));
         for (String col : List.of("Id", "IdTeam", "NumStrategy")) require(tc, col);
+        for (TacticsFields.Field field : TacticsFields.FIELDS) require(tc, field.key());
         for (String col : List.of("IdTactic", "NumFormation", "NumPlayer", "Position", "LocationX", "LocationY")) require(fc, col);
         List<List<String>> chosen = new ArrayList<>();
         for (int i=1;i<tactics.size();i++) if (teamId.equals(tactics.get(i).get(tc.get("IdTeam")))) {
             chosen.add(tactics.get(i));
         }
         if (chosen.isEmpty()) throw new IOException("Este clube não possui tática no CSV selecionado.");
-        new FormationEditorDialog(owner, teamId, chosen, formations, tc, fc, formationsFile).setVisible(true);
+        new FormationEditorDialog(owner, teamId, chosen, tactics, formations, tc, fc,
+                tacticsFile, formationsFile, database.roster(teamId)).setVisible(true);
     }
 
     private static Map<String, Integer> columns(List<String> header) {
@@ -84,10 +96,15 @@ public final class FormationEditorDialog extends JDialog {
         if (!headers.containsKey(field)) throw new IOException("Coluna obrigatória não encontrada: " + field);
     }
     private FormationEditorDialog(Window owner, String teamId, List<List<String>> chosen,
-                                  List<List<String>> formations, Map<String,Integer> tc,
-                                  Map<String,Integer> fc, Path source) {
+                                  List<List<String>> tactics, List<List<String>> formations,
+                                  Map<String,Integer> tc, Map<String,Integer> fc,
+                                  Path tacticsSource, Path source,
+                                  List<PesDatabase.RosterEntry> roster) {
         super(owner, "Formações — clube #" + teamId, ModalityType.APPLICATION_MODAL);
         this.formations = formations;
+        this.tactics = tactics;
+        this.tacticsSource = tacticsSource.toAbsolutePath().normalize();
+        this.roster = new ArrayList<>(roster);
         this.tacticColumns = tc;
         this.formationColumns = fc;
         this.source = source.toAbsolutePath().normalize();
@@ -119,14 +136,18 @@ public final class FormationEditorDialog extends JDialog {
         editing.add(controls, BorderLayout.SOUTH);
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, editing, pitch);
         split.setResizeWeight(.63); split.setDividerLocation(660);
-        add(split, BorderLayout.CENTER);
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("Formações (campo)", split);
+        tabs.addTab("Tática (ataque/defesa)", createTacticsPanel());
+        tabs.addTab("Elenco (consulta)", createRosterPanel());
+        add(tabs, BorderLayout.CENTER);
 
         JPanel footer = new JPanel(new BorderLayout(5, 5));
         footer.setBorder(BorderFactory.createEmptyBorder(6, 12, 10, 12));
-        details.setText("X: 0–50 (defesa → ataque)  •  Y: 0–100 (faixa lateral)  •  Alterações só em memória");
+        details.setText("X: 0–50 (defesa → ataque) • Y: 0–100 (lateral) • Alterações apenas em memória");
         footer.add(details, BorderLayout.NORTH);
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton close = new JButton("Fechar"), export = new JButton("Exportar TacticsFormation CSV...");
+        JButton close = new JButton("Fechar"), export = new JButton("Exportar 2 CSVs (tática + formação)...");
         close.addActionListener(e -> close());
         export.addActionListener(e -> exportChanges());
         buttons.add(close); buttons.add(export); footer.add(buttons, BorderLayout.SOUTH);
@@ -137,7 +158,7 @@ public final class FormationEditorDialog extends JDialog {
             if (!e.getValueIsAdjusting()) updateControls();
         });
         changeTactic();
-        setSize(1160, 720); setMinimumSize(new Dimension(920, 580));
+        setSize(1200, 760); setMinimumSize(new Dimension(920, 580));
         setLocationRelativeTo(owner);
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new java.awt.event.WindowAdapter() {
@@ -162,6 +183,7 @@ public final class FormationEditorDialog extends JDialog {
         variants.forEach(variantSelector::addItem);
         selecting = false;
         refreshList();
+        loadTacticControls();
     }
     private void refreshList() {
         if (selecting) return;
@@ -204,30 +226,175 @@ public final class FormationEditorDialog extends JDialog {
         if (changed) { changes++; model.fireTableRowsUpdated(selected,selected); pitch.repaint(); }
         details.setText(changes + " alterações aplicadas (em memória) — exporte um CSV novo para salvar.");
     }
-    private void exportChanges() {
-        if (changes==0) { JOptionPane.showMessageDialog(this,"Nenhuma alteração para exportar."); return; }
-        JFileChooser fc = new JFileChooser(source.getParent().toFile());
-        fc.setSelectedFile(source.resolveSibling("TacticsFormation_Norteverso_editado.csv").toFile());
-        fc.setDialogTitle("Exportar uma cópia de TacticsFormation");
-        if (fc.showSaveDialog(this)!=JFileChooser.APPROVE_OPTION) return;
-        Path output=fc.getSelectedFile().toPath().toAbsolutePath().normalize();
-        if (output.equals(source) || Files.exists(output)) {
-            JOptionPane.showMessageDialog(this,"Escolha um arquivo novo, diferente do original.","Destino inválido",JOptionPane.WARNING_MESSAGE);
-            return;
+    private JPanel createTacticsPanel() {
+        JPanel wrapper = new JPanel(new BorderLayout(10, 10));
+        wrapper.setBorder(BorderFactory.createEmptyBorder(16, 24, 16, 24));
+        JLabel heading = new JLabel("Parâmetros do PES · tática selecionada no topo");
+        heading.setFont(new Font("SansSerif", Font.BOLD, 17));
+        wrapper.add(heading, BorderLayout.NORTH);
+        JPanel grid = new JPanel(new GridBagLayout());
+        GridBagConstraints c = new GridBagConstraints();
+        c.insets = new Insets(5, 8, 5, 8);
+        c.anchor = GridBagConstraints.WEST;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        int row = 0;
+        String group = "";
+        for (TacticsFields.Field field : TacticsFields.FIELDS) {
+            if (!field.group().equals(group)) {
+                group = field.group();
+                c.gridx = 0; c.gridy = row++; c.gridwidth = 2;
+                JLabel title = new JLabel(group.toUpperCase());
+                title.setForeground(new Color(12, 104, 77));
+                title.setFont(new Font("SansSerif", Font.BOLD, 14));
+                grid.add(title, c);
+                c.gridwidth = 1;
+            }
+            c.gridx = 0; c.gridy = row;
+            grid.add(new JLabel(field.label() + " (" + field.key() + "):"), c);
+            c.gridx = 1;
+            JSpinner spinner = new JSpinner(new SpinnerNumberModel(field.min(), field.min(), field.max(), 1));
+            spinner.setPreferredSize(new Dimension(82, 27));
+            spinner.setToolTipText("Código original do PES: " + field.min() + " a " + field.max());
+            tacticSpinners.put(field.key(), spinner);
+            grid.add(spinner, c);
+            row++;
         }
-        try {
-            Csv.gravar(output, formations);
-            changes=0;
-            details.setText("Formações exportadas: " + output);
-            JOptionPane.showMessageDialog(this,"CSV exportado. Importe no Ejogc327 em ambiente de teste.\n" + output);
-        } catch (IOException ex) {
-            JOptionPane.showMessageDialog(this,ex.getMessage(),"Erro de gravação",JOptionPane.ERROR_MESSAGE);
+        JScrollPane scroller = new JScrollPane(grid);
+        scroller.getVerticalScrollBar().setUnitIncrement(18);
+        wrapper.add(scroller, BorderLayout.CENTER);
+        JPanel bottom = new JPanel(new BorderLayout(10, 6));
+        JButton apply = new JButton("Aplicar parâmetros à tática selecionada");
+        apply.addActionListener(e -> applyTactics());
+        bottom.add(apply, BorderLayout.NORTH);
+        JLabel note = new JLabel("Códigos 0/1/2 originais, sem traduzir opções não verificadas; IDs protegidos.");
+        note.setForeground(new Color(90, 94, 102));
+        bottom.add(note, BorderLayout.SOUTH);
+        wrapper.add(bottom, BorderLayout.SOUTH);
+        return wrapper;
+    }
+
+    private JPanel createRosterPanel() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
+        String[] headers = {"Camisa", "Jogador", "ID", "Posição (código)", "Overall"};
+        Object[][] rows = new Object[roster.size()][5];
+        for (int i = 0; i < roster.size(); i++) {
+            PesDatabase.RosterEntry e = roster.get(i);
+            rows[i] = new Object[] {e.shirtNumber(), e.player().name(), e.player().id(),
+                    e.player().position(), e.player().overall()};
+        }
+        javax.swing.table.DefaultTableModel data = new javax.swing.table.DefaultTableModel(rows, headers) {
+            @Override public boolean isCellEditable(int r, int col) { return false; }
+        };
+        JTable list = new JTable(data);
+        list.setRowHeight(25);
+        list.setAutoCreateRowSorter(true);
+        panel.add(new JScrollPane(list), BorderLayout.CENTER);
+        JTextArea note = new JTextArea("CONSULTA DO ELENCO: as linhas TacticsFormation usam NumPlayer "
+                + "(ordem da posição), não ID de jogador. Portanto, selecionar um jogador aqui não modifica "
+                + "automaticamente os titulares do PES. A escalação real exige mapear os dados do EDIT/save.");
+        note.setLineWrap(true);
+        note.setWrapStyleWord(true);
+        note.setEditable(false);
+        note.setFocusable(false);
+        note.setBackground(panel.getBackground());
+        note.setRows(3);
+        panel.add(note, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private void loadTacticControls() {
+        TacticOption selected = (TacticOption) tacticSelector.getSelectedItem();
+        if (selected == null) return;
+        for (List<String> row : teamTactics) {
+            if (!selected.id().equals(row.get(tacticColumns.get("Id")))) continue;
+            for (TacticsFields.Field field : TacticsFields.FIELDS) {
+                JSpinner spinner = tacticSpinners.get(field.key());
+                if (spinner != null && tacticColumns.containsKey(field.key())) {
+                    int value = Integer.parseInt(row.get(tacticColumns.get(field.key())));
+                    // Vale para o domínio encontrado nos arquivos fornecidos pelo usuário.
+                    spinner.setValue(Math.max(field.min(), Math.min(field.max(), value)));
+                }
+            }
+            break;
         }
     }
+
+    private void applyTactics() {
+        TacticOption selected = (TacticOption) tacticSelector.getSelectedItem();
+        if (selected == null) return;
+        for (List<String> row : teamTactics) {
+            if (!selected.id().equals(row.get(tacticColumns.get("Id")))) continue;
+            Map<String, Integer> updates = new LinkedHashMap<>();
+            for (TacticsFields.Field field : TacticsFields.FIELDS) {
+                updates.put(field.key(), ((Number) tacticSpinners.get(field.key()).getValue()).intValue());
+            }
+            try {
+                if (TacticsFields.apply(tacticColumns, row, updates)) {
+                    tacticChanges++;
+                    details.setText("Tática alterada em memória • " + tacticChanges
+                            + " aplicações em táticas / " + changes + " em formações");
+                } else details.setText("Tática sem diferenças. Nada foi alterado.");
+            } catch (IllegalArgumentException e) {
+                JOptionPane.showMessageDialog(this, e.getMessage(), "Valor inválido", JOptionPane.WARNING_MESSAGE);
+            }
+            return;
+        }
+    }
+
+    private void exportChanges() {
+        if (changes == 0 && tacticChanges == 0) {
+            JOptionPane.showMessageDialog(this, "Nenhuma alteração para exportar."); return;
+        }
+        JFileChooser chooser = new JFileChooser(source.getParent().toFile());
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setDialogTitle("Escolha a pasta para os dois CSVs (originais preservados)");
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        Path dir = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
+        String label = java.time.LocalDateTime.now().format(
+                java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        Path tacticOut = dir.resolve("Taticas_Norteverso_" + label + ".csv");
+        Path formationOut = dir.resolve("TacticsFormation_Norteverso_" + label + ".csv");
+        if (tacticOut.equals(tacticsSource) || formationOut.equals(source)
+                || Files.exists(tacticOut) || Files.exists(formationOut)) {
+            JOptionPane.showMessageDialog(this, "Destino existente ou igual à origem.",
+                    "Destino inválido", JOptionPane.WARNING_MESSAGE); return;
+        }
+        if (JOptionPane.showConfirmDialog(this,
+                "Exportar os DOIS arquivos completos?\n" + tacticOut.getFileName() + "\n"
+                        + formationOut.getFileName() + "\n\nNão modifica os CSVs originais.",
+                "Confirmar exportação", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        try {
+            exportPair(tactics, formations, tacticOut, formationOut);
+            changes = 0;
+            tacticChanges = 0;
+            details.setText("Exportadas cópias de táticas e formações para " + dir);
+            JOptionPane.showMessageDialog(this, "Arquivos exportados. Teste a importação no Ejogc327 "
+                    + "antes de aplicar ao patch.\n" + tacticOut + "\n" + formationOut);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Erro de gravação", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private static void exportPair(List<List<String>> tactics, List<List<String>> formations,
+                                   Path tacticOut, Path formationOut) throws IOException {
+        if (tacticOut.equals(formationOut) || Files.exists(tacticOut) || Files.exists(formationOut)) {
+            throw new IOException("Os arquivos de destino precisam ser novos e diferentes.");
+        }
+        List<Path> saved = new ArrayList<>();
+        try {
+            Csv.gravar(tacticOut, tactics); saved.add(tacticOut);
+            Csv.gravar(formationOut, formations); saved.add(formationOut);
+        } catch (IOException ex) {
+            for (Path output : saved) try { Files.deleteIfExists(output); } catch (IOException ignored) { }
+            throw ex;
+        }
+    }
+
     private void close() {
-        if (changes>0 && JOptionPane.showConfirmDialog(this,
-                "Há formações alteradas ainda não exportadas. Descartar?", "Descartar",
-                JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION) return;
+        if ((changes > 0 || tacticChanges > 0) && JOptionPane.showConfirmDialog(this,
+                "Há alterações táticas ou formações ainda não exportadas. Descartar?", "Descartar",
+                JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
         dispose();
     }
     private final class FormationTableModel extends AbstractTableModel {
