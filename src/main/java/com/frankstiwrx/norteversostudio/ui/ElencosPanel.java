@@ -136,7 +136,7 @@ public final class ElencosPanel extends JPanel {
         JPanel generatorRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
         generatorRow.setBackground(FUNDO);
         generatorRow.add(generatorButton);
-        JLabel generatorNote = new JLabel("Proteja históricos e gere novos nomes sem alterar IDs, atributos e faces.");
+        JLabel generatorNote = new JLabel("Proteja históricos, crie perfis e gere elencos inteiros com auditoria CSV.");
         generatorNote.setForeground(new Color(76, 102, 96));
         generatorRow.add(generatorNote);
         generatorRow.setAlignmentX(Component.LEFT_ALIGNMENT);

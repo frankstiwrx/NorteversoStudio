@@ -42,7 +42,7 @@ import javax.swing.SpinnerNumberModel;
 import javax.swing.table.AbstractTableModel;
 
 /**
- * Gerador + protetor v0.8: quatro modos com prévia editável e validação em lote.
+ * Gerador + protetor: quatro modos individuais e geracao inteligente por elenco.
  * Trabalha só com jogadores existentes, preservando IDs, rostos e clubes.
  */
 public final class GeneratorProtectionDialog extends JDialog {
@@ -53,6 +53,7 @@ public final class GeneratorProtectionDialog extends JDialog {
     private final PlayerGenerationService generator;
     private final Runnable afterApply;
     private final List<RosterEntry> entries;
+    private final String selectedTeamId;
     private final Model model = new Model();
     private final JTable table = new JTable(model);
     private final JLabel status = new JLabel(" ");
@@ -78,6 +79,7 @@ public final class GeneratorProtectionDialog extends JDialog {
                                      Runnable afterApply) {
         super(owner, "Norteverso Studio — Gerador e protetor", ModalityType.APPLICATION_MODAL);
         this.db = db;
+        this.selectedTeamId = teamId;
         this.registry = registry;
         this.generator = new PlayerGenerationService(catalog, registry);
         this.afterApply = afterApply;
@@ -212,14 +214,34 @@ public final class GeneratorProtectionDialog extends JDialog {
         edit.setEnabled(false);
         apply.setBackground(DARK);
         apply.setForeground(Color.WHITE);
+        JButton squad = new JButton("Gerar elenco inteligente...");
         JButton clear = new JButton("Descartar prévia");
         JButton close = new JButton("Fechar");
         actions.add(generate);
+        actions.add(squad);
         actions.add(edit);
         actions.add(apply);
         actions.add(clear);
         actions.add(close);
         generate.addActionListener(e -> generatePreview());
+        squad.addActionListener(e -> {
+            if (!preview.isEmpty()) {
+                int answer = JOptionPane.showConfirmDialog(this,
+                        "A prévia individual atual será descartada. Continuar?",
+                        "Gerar elenco", JOptionPane.YES_NO_OPTION);
+                if (answer != JOptionPane.YES_OPTION) return;
+            }
+            invalidatePreview("Abrindo gerador de elencos...");
+            SquadGeneratorDialog dialog = new SquadGeneratorDialog(this, db,
+                    teamId(), catalog, registry, () -> {
+                        model.fireTableDataChanged();
+                        refreshCounts();
+                        afterApply.run();
+                    });
+            dialog.setVisible(true);
+            model.fireTableDataChanged();
+            refreshCounts();
+        });
         edit.addActionListener(e -> editSelected());
         apply.addActionListener(e -> applyPreview());
         clear.addActionListener(e -> invalidatePreview("Prévia descartada."));
@@ -235,6 +257,8 @@ public final class GeneratorProtectionDialog extends JDialog {
         bottom.add(status);
         outer.add(bottom, BorderLayout.SOUTH);
     }
+
+    private String teamId() { return selectedTeamId; }
 
     private List<String> selectedIds(boolean all) {
         List<String> ids = new ArrayList<>();
