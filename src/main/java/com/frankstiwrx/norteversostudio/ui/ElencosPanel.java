@@ -63,7 +63,10 @@ public final class ElencosPanel extends JPanel {
     private final JButton transferButton = new JButton("Transferir...");
     private final JButton formationButton = new JButton("Formação...");
     private final JButton generatorButton = new JButton("Gerador / Protetor...");
-    private final JButton exportButton = new JButton("Exportar 3 CSVs...");
+    private final JButton exportButton = new JButton("Exportar base COMPLETA (3 CSVs)...");
+    private final JButton adjustSquadButton = new JButton("Ajustar atributos do elenco (+/- %)...");
+    private final JButton reviewButton = new JButton("Exportar SOMENTE este clube (análise)...");
+    private final JButton helpButton = new JButton("? Entenda as opções");
     private final JTextField teamSearch = new JTextField();
     private final JTextField playerSearch = new JTextField();
     private final JCheckBox includeNational = new JCheckBox("Incluir seleções", false);
@@ -96,6 +99,8 @@ public final class ElencosPanel extends JPanel {
         formationButton.setEnabled(false);
         generatorButton.setEnabled(false);
         exportButton.setEnabled(false);
+        adjustSquadButton.setEnabled(false);
+        reviewButton.setEnabled(false);
     }
 
     private JPanel createHeader() {
@@ -136,11 +141,23 @@ public final class ElencosPanel extends JPanel {
         JPanel generatorRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
         generatorRow.setBackground(FUNDO);
         generatorRow.add(generatorButton);
-        JLabel generatorNote = new JLabel("Proteja históricos, crie perfis e gere elencos inteiros com auditoria CSV.");
+        generatorRow.add(adjustSquadButton);
+        generatorRow.add(reviewButton);
+        generatorRow.add(helpButton);
+        adjustSquadButton.addActionListener(e -> openSquadAdjustment());
+        reviewButton.addActionListener(e -> exportReview());
+        helpButton.addActionListener(e -> showHelp());
+        JLabel generatorNote = new JLabel("Geração e ajuste em massa usam prévias; a exportação do clube é apenas para auditoria.");
         generatorNote.setForeground(new Color(76, 102, 96));
-        generatorRow.add(generatorNote);
+        generatorNote.setAlignmentX(Component.LEFT_ALIGNMENT);
+        loadButton.setToolTipText("Carrega a base inteira em memória. Não altera os arquivos originais.");
+        generatorButton.setToolTipText("Proteger jogadores, gerar nomes e perfis e criar elencos novos com prévia.");
+        adjustSquadButton.setToolTipText("Upgrade/downgrade de até 30% com prévia; pula jogadores protegidos.");
+        reviewButton.setToolTipText("Exporta apenas o clube escolhido para análise. NÃO importar no Ejogc327.");
+        exportButton.setToolTipText("Exporta os 3 CSVs COMPLETOS, próprios para testar no Ejogc327 após validar.");
         generatorRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(generatorRow);
+        top.add(generatorNote);
         top.add(Box.createVerticalStrut(9));
         summary.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(summary);
@@ -338,6 +355,8 @@ public final class ElencosPanel extends JPanel {
             editTeamButton.setEnabled(false);
             formationButton.setEnabled(false);
             generatorButton.setEnabled(false);
+            adjustSquadButton.setEnabled(false);
+            reviewButton.setEnabled(false);
             assignmentButton.setEnabled(false);
             transferButton.setEnabled(false);
             return;
@@ -347,6 +366,8 @@ public final class ElencosPanel extends JPanel {
         editTeamButton.setEnabled(true);
         formationButton.setEnabled(true);
         generatorButton.setEnabled(!team.national());
+        adjustSquadButton.setEnabled(!team.national());
+        reviewButton.setEnabled(!team.national());
         editPlayerButton.setEnabled(false);
         assignmentButton.setEnabled(false);
         transferButton.setEnabled(false);
@@ -515,6 +536,65 @@ public final class ElencosPanel extends JPanel {
         updateDirty();
     }
 
+    private void openSquadAdjustment() {
+        Team team = teamList.getSelectedValue();
+        if (team == null || team.national() || database == null) return;
+        if (protectionRegistry == null) {
+            try {
+                protectionRegistry = ProtectionRegistry.load(Path.of("dados", "jogadores_protegidos.csv"));
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Falha ao carregar lista de protegidos: " + ex.getMessage(),
+                        "Proteção indisponível", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
+        SquadAdjustDialog dialog = new SquadAdjustDialog(SwingUtilities.getWindowAncestor(this),
+                database, team.id(), protectionRegistry, () -> refreshTeam(team.id()));
+        dialog.setVisible(true);
+    }
+
+    private void exportReview() {
+        Team team = teamList.getSelectedValue();
+        if (database == null || team == null || team.national()) return;
+        JFileChooser picker = new JFileChooser(lastDirectory);
+        picker.setDialogTitle("Escolha a pasta ONDE criar uma subpasta de ANÁLISE do clube");
+        picker.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        if (picker.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        Path parent = picker.getSelectedFile().toPath();
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        Path subfolder = parent.resolve("ANALISE_Clube_" + team.id() + "_" + timestamp);
+        if (JOptionPane.showConfirmDialog(this,
+                "Exportar apenas os jogadores e atribuições de " + team.name() + "?\n\n"
+                + "Serão gerados 3 arquivos pequenos + LEIA-ME.\n"
+                + "NÃO use esses arquivos reduzidos para substituir a base do PES!\n\n"
+                + "Destino: " + subfolder,
+                "Exportação SOMENTE PARA ANÁLISE", JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) return;
+        try {
+            database.exportClubReview(subfolder, team.id());
+            globalStatus.accept("Exportação de análise concluída: " + subfolder);
+            JOptionPane.showMessageDialog(this, "Dados do clube exportados em:\n" + subfolder
+                    + "\n\nPara importar no Ejogc327, use 'Exportar base COMPLETA'.", "Pronto", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Falha na exportação de análise", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void showHelp() {
+        JOptionPane.showMessageDialog(this,
+                "GUIA RÁPIDO DO NORTEVERSO STUDIO\n\n"
+                + "1. Carregar: lê Jogadores + Times + Atribuições em memória.\n"
+                + "2. Editar jogador/time: ajustes manuais individuais.\n"
+                + "3. Gerador/Protetor: cria perfis e impede geração sobre IDs protegidos.\n"
+                + "4. Ajustar elenco: upgrade ou downgrade em %; prévia e confirmação.\n"
+                + "5. Exportar SOMENTE este clube: CSVs pequenos PARA REVISÃO, não para importar no PES.\n"
+                + "6. Exportar base COMPLETA: arquivos integrais para validar no Ejogc327.\n\n"
+                + "Proteção bloqueia geração em massa, NÃO bloqueia edição manual.\n"
+                + "OverallStats original NÃO é recalculado automaticamente.\n"
+                + "Antes de importar no patch, faça backup dos BINs e do EDIT.",
+                "O que faz cada opção?", JOptionPane.INFORMATION_MESSAGE);
+    }
+
     private void exportEdited() {
         if (database == null || database.dirtyPlayers() + database.dirtyTeams()
                 + database.dirtyAssignments() == 0) return;
@@ -547,6 +627,10 @@ public final class ElencosPanel extends JPanel {
                 editTeamButton.setEnabled(teamList.getSelectedValue() != null);
                 formationButton.setEnabled(teamList.getSelectedValue() != null);
                 generatorButton.setEnabled(teamList.getSelectedValue() != null
+                        && !teamList.getSelectedValue().national());
+                adjustSquadButton.setEnabled(teamList.getSelectedValue() != null
+                        && !teamList.getSelectedValue().national());
+                reviewButton.setEnabled(teamList.getSelectedValue() != null
                         && !teamList.getSelectedValue().national());
                 editPlayerButton.setEnabled(selectedPlayerId() != null);
                 assignmentButton.setEnabled(selectedAssignmentId() != null);

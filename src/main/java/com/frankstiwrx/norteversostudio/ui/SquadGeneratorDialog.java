@@ -65,7 +65,7 @@ public final class SquadGeneratorDialog extends JDialog {
     private final JSpinner baseLevel = new JSpinner(new SpinnerNumberModel(84, 58, 94, 1));
     private final JTextField seed = new JTextField("20261017", 10);
     private final JCheckBox nationality = new JCheckBox("Nacionalidade conforme nome", true);
-    private final JCheckBox shirt = new JCheckBox("Novo nome na camisa", true);
+    private final JCheckBox shirt = new JCheckBox("Atualizar nome na camisa", true);
     private final JCheckBox protectGenerated = new JCheckBox("Proteger gerados depois de aplicar", false);
     private final Map<Role, JSpinner> roleInputs = new EnumMap<>(Role.class);
     private final JLabel counts = new JLabel();
@@ -73,9 +73,9 @@ public final class SquadGeneratorDialog extends JDialog {
     private final JLabel summary = new JLabel(" ");
     private final RosterModel model = new RosterModel();
     private final JTable table = new JTable(model);
-    private final JButton applyButton = new JButton("Aplicar elenco à memória");
+    private final JButton applyButton = new JButton("2. Aplicar prévia à memória");
     private final JButton editButton = new JButton("Editar jogador da prévia...");
-    private final JButton reportButton = new JButton("Exportar relatório CSV...");
+    private final JButton reportButton = new JButton("Exportar comparação antes/depois...");
     private Preview preview;
     private List<List<String>> lastAudit;
     private boolean configuring = false;
@@ -143,11 +143,11 @@ public final class SquadGeneratorDialog extends JDialog {
         settings.setOpaque(false);
         settings.add(new JLabel("Divisão:"));
         settings.add(division);
-        settings.add(new JLabel("Nível base:"));
+        settings.add(new JLabel("Nível técnico (NÃO OVR):"));
         settings.add(baseLevel);
         settings.add(new JLabel("Origem dos nomes:"));
         settings.add(origin);
-        settings.add(new JLabel("Seed:"));
+        settings.add(new JLabel("Seed (repete o sorteio):"));
         settings.add(seed);
         settings.setAlignmentX(LEFT_ALIGNMENT);
         header.add(settings);
@@ -157,6 +157,11 @@ public final class SquadGeneratorDialog extends JDialog {
         toggles.add(shirt);
         toggles.add(protectGenerated);
         header.add(toggles);
+        baseLevel.setToolTipText("Controla a força aproximada dos atributos. NÃO é o overall oficial do PES.");
+        division.setToolTipText("Preenche o nível técnico recomendado para a divisão. Você pode alterá-lo.");
+        seed.setToolTipText("Mesmo número e mesmas opções reproduzem a mesma geração.");
+        nationality.setToolTipText("Altera a nacionalidade esportiva para a origem escolhida; desligue se quiser preservar o país anterior.");
+        protectGenerated.setToolTipText("Após aplicar, guarda os IDs para que gerações futuras não os alterem.");
 
         JPanel distribution = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 3));
         distribution.setOpaque(false);
@@ -168,7 +173,7 @@ public final class SquadGeneratorDialog extends JDialog {
             distribution.add(count);
             count.addChangeListener(e -> changedSettings());
         }
-        JButton suggest = new JButton("Sugerir distribuição");
+        JButton suggest = new JButton("Preencher categorias automaticamente");
         distribution.add(suggest);
         suggest.addActionListener(e -> suggestRoles());
         distribution.setAlignmentX(LEFT_ALIGNMENT);
@@ -176,6 +181,9 @@ public final class SquadGeneratorDialog extends JDialog {
         summary.setAlignmentX(LEFT_ALIGNMENT);
         summary.setForeground(DARK);
         header.add(summary);
+        JLabel balanceHelp = new JLabel("Balanceamento: evita excesso de notas 95–99 na geração automática. Perfis editados manualmente continuam livres.");
+        balanceHelp.setForeground(new Color(30, 105, 90));
+        header.add(balanceHelp);
         header.add(Box.createVerticalStrut(5));
         outer.add(header, BorderLayout.NORTH);
 
@@ -199,7 +207,7 @@ public final class SquadGeneratorDialog extends JDialog {
         bottom.setLayout(new BoxLayout(bottom, BoxLayout.Y_AXIS));
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 4));
         buttons.setOpaque(false);
-        JButton generate = new JButton("Gerar prévia do elenco");
+        JButton generate = new JButton("1. Gerar prévia (não aplica)");
         generate.setBackground(GREEN);
         generate.setForeground(Color.WHITE);
         applyButton.setBackground(DARK);

@@ -364,6 +364,58 @@ public final class PesDatabase {
         exportedRevision = revision;
     }
 
+    /**
+     * Exportacao REDUZIDA para ANALISE, nao para importar BIN/EDIT.
+     * Preserva todas as colunas e a ordem das linhas originais.
+     * Nao confirma nem limpa o estado de exportacao pendente.
+     */
+    public void exportClubReview(Path folder, String teamId) throws IOException {
+        Team selected = team(teamId);
+        if (selected == null || selected.national()) throw new IOException("Selecione um clube valido.");
+        if (Files.exists(folder)) throw new IOException("A pasta de analise ja existe: " + folder);
+        Files.createDirectories(folder);
+        try {
+            Set<String> ids = new HashSet<>();
+            for (RosterEntry entry : roster(teamId)) ids.add(entry.player().id());
+            List<List<String>> playerRowsOut = new ArrayList<>();
+            playerRowsOut.add(playersCsv.header);
+            for (List<String> row : playersCsv.rows) {
+                if (ids.contains(playersCsv.value(row, "Id"))) playerRowsOut.add(row);
+            }
+            List<List<String>> teamRowsOut = new ArrayList<>();
+            teamRowsOut.add(teamsCsv.header);
+            for (List<String> row : teamsCsv.rows) {
+                if (teamId.equals(teamsCsv.value(row, "Id"))) teamRowsOut.add(row);
+            }
+            List<List<String>> assignRowsOut = new ArrayList<>();
+            assignRowsOut.add(assignmentsCsv.header);
+            for (List<String> row : assignmentsCsv.rows) {
+                if (teamId.equals(assignmentsCsv.value(row, "IdTeam"))) assignRowsOut.add(row);
+            }
+            // 3 arquivos pequenos evitam misturar jogadores de outras equipes na auditoria.
+            Csv.gravar(folder.resolve("Jogadores_APENAS_CLUBE.csv"), playerRowsOut);
+            Csv.gravar(folder.resolve("Time_APENAS_CLUBE.csv"), teamRowsOut);
+            Csv.gravar(folder.resolve("Atribuicoes_APENAS_CLUBE.csv"), assignRowsOut);
+            Files.writeString(folder.resolve("LEIA-ME.txt"),
+                    "NORTEVERSO STUDIO - EXPORTACAO PARA CONFERENCIA\n"
+                  + "Clube: " + selected.name() + " (ID " + teamId + ")\n"
+                  + "Jogadores: " + (playerRowsOut.size() - 1) + "\n"
+                  + "Vinculos: " + (assignRowsOut.size() - 1) + "\n\n"
+                  + "ATENCAO: estes arquivos contem apenas um clube. NAO importe diretamente "
+                  + "no Ejogc327, BIN ou EDIT. Para atualizar o patch, use 'Exportar base COMPLETA'.\n"
+                  + "Este relatorio NAO substitui a exportacao completa e NAO limpa pendencias.\n",
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException ex) {
+            // Evita deixar uma pasta de analise parcial com dados inconsistentes.
+            for (String name : List.of("Jogadores_APENAS_CLUBE.csv", "Time_APENAS_CLUBE.csv",
+                    "Atribuicoes_APENAS_CLUBE.csv", "LEIA-ME.txt")) {
+                try { Files.deleteIfExists(folder.resolve(name)); } catch (IOException ignored) { }
+            }
+            try { Files.deleteIfExists(folder); } catch (IOException ignored) { }
+            throw ex;
+        }
+    }
+
     private static void writeNewFile(Path destination, List<List<String>> rows) throws IOException {
         Path folder = destination.getParent();
         if (folder != null) Files.createDirectories(folder);
