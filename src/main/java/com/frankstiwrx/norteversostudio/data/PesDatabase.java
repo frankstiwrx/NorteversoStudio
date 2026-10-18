@@ -262,6 +262,42 @@ public final class PesDatabase {
         return teams.stream().filter(t -> t.id().equals(id)).findFirst().orElse(null);
     }
 
+    /** Copia imutavel das 151 colunas importadas: auditoria sem reabrir arquivos. */
+    public Map<String, String> playerFieldsSnapshot(String id) {
+        List<String> row = playerRows.get(id);
+        if (row == null) throw new IllegalArgumentException("Jogador inexistente: " + id);
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String field : playersCsv.header) {
+            String name = field.replace("\uFEFF", "").trim();
+            result.put(name, row.get(playersCsv.columns.get(name)));
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    /** Copia imutavel de todos os campos da atribuicao (camisa, clube e selecao). */
+    public Map<String, String> assignmentFieldsSnapshot(String id) {
+        List<String> row = assignmentRows.get(id);
+        if (row == null) throw new IllegalArgumentException("Atribuicao inexistente: " + id);
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String field : assignmentsCsv.header) {
+            String name = field.replace("\uFEFF", "").trim();
+            result.put(name, row.get(assignmentsCsv.columns.get(name)));
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    /** Copia do cadastro do clube; audita que a geracao de identidade nao editou o time. */
+    public Map<String, String> teamFieldsSnapshot(String id) {
+        List<String> row = teamRows.get(id);
+        if (row == null) throw new IllegalArgumentException("Clube inexistente: " + id);
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String field : teamsCsv.header) {
+            String name = field.replace("\uFEFF", "").trim();
+            result.put(name, row.get(teamsCsv.columns.get(name)));
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
     public String playerField(String id, String field) {
         if (!playerRows.containsKey(id)) throw new IllegalArgumentException("Jogador inexistente: " + id);
         return playerRows.get(id).get(playersCsv.columns.get(field));

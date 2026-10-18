@@ -4,6 +4,7 @@ import com.frankstiwrx.norteversostudio.data.PesDatabase;
 import com.frankstiwrx.norteversostudio.data.PesDatabase.RosterEntry;
 import com.frankstiwrx.norteversostudio.data.PlayingStyleCatalog;
 import com.frankstiwrx.norteversostudio.generator.NameCatalog;
+import com.frankstiwrx.norteversostudio.generator.IdentityPreservationVerifier;
 import com.frankstiwrx.norteversostudio.generator.OverallTargetBalancer;
 import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService;
 import com.frankstiwrx.norteversostudio.generator.PlayerGenerationService.Draft;
@@ -31,6 +32,11 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
+import javax.swing.JTextArea;
+import javax.swing.JFileChooser;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -70,6 +76,8 @@ public final class GeneratorProtectionDialog extends JDialog {
     private final JCheckBox protectGenerated = new JCheckBox("Proteger depois de aplicar", false);
     private final JButton apply = new JButton("APLICAR PRÉVIA");
     private final JButton edit = new JButton("Editar jogador da prévia...");
+    private final JButton verifyIdentity = new JButton("Verificar preservação");
+    private IdentityPreservationVerifier.Snapshot identitySnapshot;
     private List<Draft> preview = List.of();
 
     private record Origin(String label, String code) {
@@ -117,6 +125,10 @@ public final class GeneratorProtectionDialog extends JDialog {
         hint.setForeground(GREEN);
         hint.setAlignmentX(LEFT_ALIGNMENT);
         header.add(hint);
+        JLabel identityHint = new JLabel("Para manter a força da Série C: selecione 'Só nome e nacionalidade' e clique em 'Verificar preservação'.");
+        identityHint.setForeground(DARK);
+        identityHint.setAlignmentX(LEFT_ALIGNMENT);
+        header.add(identityHint);
         header.add(Box.createVerticalStrut(7));
         counts.setAlignmentX(LEFT_ALIGNMENT);
         header.add(counts);
@@ -220,16 +232,20 @@ public final class GeneratorProtectionDialog extends JDialog {
         edit.setEnabled(false);
         apply.setBackground(DARK);
         apply.setForeground(Color.WHITE);
+        verifyIdentity.setToolTipText("Somente no modo 'Só nome e nacionalidade': compara todos os campos e confirma que nenhuma habilidade, posição ou atributo será alterado.");
+        verifyIdentity.setEnabled(false);
         JButton squad = new JButton("Gerar elenco inteligente...");
         JButton clear = new JButton("Descartar prévia");
         JButton close = new JButton("Fechar");
         actions.add(generate);
         actions.add(squad);
+        actions.add(verifyIdentity);
         actions.add(edit);
         actions.add(apply);
         actions.add(clear);
         actions.add(close);
         generate.addActionListener(e -> generatePreview());
+        verifyIdentity.addActionListener(e -> showVerification());
         squad.addActionListener(e -> {
             if (!preview.isEmpty()) {
                 int answer = JOptionPane.showConfirmDialog(this,
@@ -308,6 +324,9 @@ public final class GeneratorProtectionDialog extends JDialog {
             if (ids.isEmpty()) throw new IllegalArgumentException("Selecione jogadores ou desmarque 'somente selecionados'.");
             Options options = new Options((Mode) mode.getSelectedItem(), selected.code(), seedValue,
                     (Integer)level.getValue(), changeCountry.isSelected(), updateShirt.isSelected());
+            // Fotografa todo o elenco ANTES de gerar a previa para auditar mudancas.
+            identitySnapshot = options.mode() == Mode.IDENTITY
+                    ? IdentityPreservationVerifier.capture(db, teamId()) : null;
             preview = generator.preview(db, ids, options);
             if (targetOverall.isSelected() && ((Mode) mode.getSelectedItem()).generatesTechnical()) {
                 for (Draft draft : preview) {
@@ -322,6 +341,7 @@ public final class GeneratorProtectionDialog extends JDialog {
             }
             apply.setEnabled(true);
             edit.setEnabled(true);
+            verifyIdentity.setEnabled(identitySnapshot != null);
             model.fireTableDataChanged();
             long good = preview.stream().filter(d ->
                     Math.abs(db.calculatedOverall(d.playerId(), d.edits()) - (Integer)level.getValue()) <= 1).count();
@@ -368,6 +388,17 @@ public final class GeneratorProtectionDialog extends JDialog {
 
     private void applyPreview() {
         if (preview.isEmpty()) return;
+        // Modo de identidade e estrito, mesmo se o usuario personalizou a previa.
+        if (identitySnapshot != null) {
+            var audit = IdentityPreservationVerifier.verifyPreview(db, identitySnapshot, preview, registry);
+            if (!audit.approved()) {
+                showVerificationReport(audit);
+                JOptionPane.showMessageDialog(this, "A aplicação foi bloqueada para preservar os atributos.\n"
+                        + "Confira o relatório e gere novamente se necessário.",
+                        "Preservação reprovada", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
         if (JOptionPane.showConfirmDialog(this,
                 "Aplicar " + preview.size() + " propostas editáveis à memória?\n"
                 + "IDs, aparências, altura/peso e vínculos permanecerão intactos.\n"
@@ -376,7 +407,17 @@ public final class GeneratorProtectionDialog extends JDialog {
                 "Confirmar geração", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
         try {
             int amount = generator.apply(db, preview);
-            String note = "";
+            IdentityPreservationVerifier.Report appliedAudit = identitySnapshot == null ? null
+                    : IdentityPreservationVerifier.verifyApplied(db, identitySnapshot, preview, registry);
+            if (appliedAudit != null && !appliedAudit.approved()) {
+                showVerificationReport(appliedAudit);
+                JOptionPane.showMessageDialog(this,
+                        "ATENÇÃO: inconsistência após aplicar! Não exporte esta base.\n"
+                        + "Recarregue os CSVs de origem e informe o problema.",
+                        "Auditoria reprovada", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            String note = appliedAudit == null ? "" : " Auditoria: APROVADO (atributos e OVR inalterados).";
             if (protectGenerated.isSelected()) {
                 Map<String, Boolean> existing = new LinkedHashMap<>();
                 for (Draft draft : preview) {
@@ -391,6 +432,7 @@ public final class GeneratorProtectionDialog extends JDialog {
                     JOptionPane.showMessageDialog(this, note, "Proteção não salva", JOptionPane.WARNING_MESSAGE);
                 }
             }
+            if (appliedAudit != null) showVerificationReport(appliedAudit);
             invalidatePreview("Aplicados " + amount + " perfis em memória. Exporte os CSVs na tela Clubes." + note);
             refreshCounts();
             afterApply.run();
@@ -399,8 +441,57 @@ public final class GeneratorProtectionDialog extends JDialog {
         }
     }
 
+    /** Verificacao manual disponivel somente no modo de geracao de identidades. */
+    private void showVerification() {
+        if (identitySnapshot == null || preview.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Selecione 'Só nome e nacionalidade' e clique em 'Gerar prévia' primeiro.",
+                    "Como verificar", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        var report = IdentityPreservationVerifier.verifyPreview(db, identitySnapshot, preview, registry);
+        showVerificationReport(report);
+        status.setText(report.approved()
+                ? "Verificação APROVADA: atributos, posições, habilidades e OVR preservados."
+                : "Verificação REPROVADA: revise as alterações proibidas antes de aplicar.");
+    }
+
+    private void showVerificationReport(IdentityPreservationVerifier.Report report) {
+        JTextArea area = new JTextArea(report.description(), 20, 72);
+        area.setEditable(false);
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        area.setCaretPosition(0);
+        JScrollPane scroll = new JScrollPane(area);
+        Object[] choices = {"Fechar", "Salvar relatório TXT..."};
+        int selected = JOptionPane.showOptionDialog(this, scroll,
+                report.approved() ? "Verificador — APROVADO" : "Verificador — BLOQUEADO",
+                JOptionPane.DEFAULT_OPTION,
+                report.approved() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE,
+                null, choices, choices[0]);
+        if (selected == 1) {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setSelectedFile(new java.io.File("Auditoria_Preservacao_Time_" + teamId() + ".txt"));
+            if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+                Path destination = chooser.getSelectedFile().toPath();
+                if (Files.exists(destination) && JOptionPane.showConfirmDialog(this,
+                        "O arquivo já existe. Substituir?", "Confirmar",
+                        JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+                try {
+                    Files.writeString(destination, report.description(), StandardCharsets.UTF_8);
+                    JOptionPane.showMessageDialog(this, "Relatório salvo em:\n" + destination);
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(this, ex.getMessage(),
+                            "Erro ao salvar relatório", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }
+    }
+
     private void invalidatePreview(String message) {
         preview = List.of();
+        identitySnapshot = null;
+        verifyIdentity.setEnabled(false);
         apply.setEnabled(false);
         edit.setEnabled(false);
         model.fireTableDataChanged();
